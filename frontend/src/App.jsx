@@ -3,7 +3,7 @@ import Antigravity from './components/AnimatedBackground';
 import Login from './components/Login';
 import Register from './components/Register';
 import MainPage from './components/MainPage';
-
+// hola mudno
 function App() {
   const [creds, setCreds] = useState({ username: '', password: '' });
   const [isRegistering, setIsRegistering] = useState(false);
