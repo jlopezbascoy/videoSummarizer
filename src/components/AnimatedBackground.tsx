@@ -187,7 +187,10 @@ const AntigravityInner: React.FC<AntigravityProps> = ({
 
 const Antigravity: React.FC<AntigravityProps> = props => {
   return (
-    <Canvas camera={{ position: [0, 0, 50], fov: 35 }}>
+    <Canvas 
+      camera={{ position: [0, 0, 50], fov: 35 }}
+      style={{ pointerEvents: 'none', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+    >
       <AntigravityInner {...props} />
     </Canvas>
   );

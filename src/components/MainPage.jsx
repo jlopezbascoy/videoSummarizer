@@ -1,9 +1,22 @@
 import React, { useState } from 'react';
+import Select from 'react-select';
 
 const LANGUAGES = [
-  'Español', 'Inglés', 'Francés', 'Alemán', 'Italiano', 'Portugués', 'Ruso', 'Chino', 
-  'Japonés', 'Coreano', 'Árabe', 'Hindi', 'Bengalí', 'Turco', 'Vietnamita', 'Polaco',
-  // agrega todos los que necesites
+  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'Inglés' },
+  { value: 'fr', label: 'Francés' },
+  { value: 'de', label: 'Alemán' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'pt', label: 'Portugués' },
+  { value: 'ru', label: 'Ruso' },
+  { value: 'zh', label: 'Chino' },
+  { value: 'ja', label: 'Japonés' },
+  { value: 'ko', label: 'Coreano' },
+  { value: 'ar', label: 'Árabe' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'tr', label: 'Turco' },
+  { value: 'vi', label: 'Vietnamita' },
+  { value: 'pl', label: 'Polaco' },
 ];
 
 export default function MainPage({ onLogout }) {
@@ -19,10 +32,10 @@ export default function MainPage({ onLogout }) {
     }
     console.log({
       videoURL,
-      language,
+      language: language.label,
       summaryLength
     });
-    // Aquí va la lógica de resumir video
+    // Aquí iría la lógica de resumir video
   };
 
   return (
@@ -47,8 +60,8 @@ export default function MainPage({ onLogout }) {
         textAlign: 'center'
       }}>
         <h2>Resumir video de YouTube</h2>
-
         <form onSubmit={handleSubmit} style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          
           {/* Input del enlace */}
           <input
             type="url"
@@ -58,24 +71,17 @@ export default function MainPage({ onLogout }) {
             style={{ width: '100%', padding: 10, borderRadius: 4, border: '1px solid #ccc' }}
           />
 
-          {/* Selector de idioma */}
-          <select
+          {/* Selector de idioma con react-select */}
+          <Select
+            options={LANGUAGES}
             value={language}
-            onChange={e => setLanguage(e.target.value)}
-            size={5} // scrollable
-            style={{
-              width: '100%',
-              padding: 10,
-              borderRadius: 4,
-              border: '1px solid #ccc',
-              overflowY: 'scroll',
-              height: 100
+            onChange={setLanguage}
+            isSearchable
+            menuPlacement="auto"
+            styles={{
+              menu: (provided) => ({ ...provided, maxHeight: 150 }),
             }}
-          >
-            {LANGUAGES.map(lang => (
-              <option key={lang} value={lang}>{lang}</option>
-            ))}
-          </select>
+          />
 
           {/* Selector de longitud */}
           <select
