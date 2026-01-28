@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function Login({ onLogin }) {
+export default function Login({ onLogin, onRegister }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
@@ -19,7 +19,7 @@ export default function Login({ onLogin }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      pointerEvents: 'none'  
+      pointerEvents: 'none' // deja pasar el mouse al fondo
     }}>
       <div style={{
         width: 320,
@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
         borderRadius: 8,
         padding: 20,
         boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
-        pointerEvents: 'auto' 
+        pointerEvents: 'auto'  // solo el formulario captura eventos
       }}>
         <form onSubmit={handleSubmit}>
           <h3 style={{ margin: '0 0 12px 0', textAlign: 'center' }}>Login</h3>
@@ -64,6 +64,24 @@ export default function Login({ onLogin }) {
             Entrar
           </button>
         </form>
+
+        {/* Botón de Crear Cuenta */}
+        <div style={{ marginTop: 10, textAlign: 'center' }}>
+          <button
+            onClick={onRegister}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: '#5227FF',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              padding: 0,
+              marginTop: 8
+            }}
+          >
+            Crear cuenta
+          </button>
+        </div>
       </div>
     </div>
   );

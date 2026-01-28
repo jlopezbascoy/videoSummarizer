@@ -1,19 +1,34 @@
 import React, { useState } from 'react';
 import Antigravity from './components/AnimatedBackground';
 import Login from './components/Login';
+import Register from './components/Register';
+import MainPage from './components/MainPage';
 
 function App() {
   const [creds, setCreds] = useState({ username: '', password: '' });
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const handleLogin = ({ username, password }) => {
-    // verification will be implemented later
     setCreds({ username, password });
+  };
+
+  const handleRegister = ({ username, email, password }) => {
+    console.log('Registro:', { username, email, password });
+    setIsRegistering(false);
+    setCreds({ username, password });
+  };
+
+  const handleLogout = () => {
+    setCreds({ username: '', password: '' });
+    setIsRegistering(false);
   };
 
   const isLogged = Boolean(creds.username && creds.password);
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+      
+      {/* Fondo animado siempre activo */}
       <Antigravity
         count={300}
         magnetRadius={6}
@@ -32,7 +47,25 @@ function App() {
         fieldStrength={10}
       />
 
-      {!isLogged && <Login onLogin={handleLogin} />}
+      {/* Login / Registro */}
+      {!isLogged && !isRegistering && (
+        <Login
+          onLogin={handleLogin}
+          onRegister={() => setIsRegistering(true)}
+        />
+      )}
+
+      {!isLogged && isRegistering && (
+        <Register
+          onRegister={handleRegister}
+          onBack={() => setIsRegistering(false)}
+        />
+      )}
+
+      {/* Página principal */}
+      {isLogged && (
+        <MainPage onLogout={handleLogout} />
+      )}
     </div>
   );
 }
