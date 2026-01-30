@@ -1,12 +1,32 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 
-export default function Login({ onLogin, onRegister }) {
+export default function Login({ onRegister }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const { login } = useAuth();
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (username && password) onLogin({ username, password });
+    setError('');
+    setLoading(true);
+
+    if (!username || !password) {
+      setError('Todos los campos son obligatorios');
+      setLoading(false);
+      return;
+    }
+
+    const result = await login({ username, password });
+
+    if (!result.success) {
+      setError(result.error);
+      setLoading(false);
+    }
+    // Si success, el AuthContext ya manejó el estado
   };
 
   return (
@@ -19,69 +39,113 @@ export default function Login({ onLogin, onRegister }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      pointerEvents: 'none' // deja pasar el mouse al fondo
+      pointerEvents: 'none'
     }}>
       <div style={{
-        width: 320,
-        background: 'rgba(255,255,255,0.9)',
-        borderRadius: 8,
-        padding: 20,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
-        pointerEvents: 'auto'  // solo el formulario captura eventos
+        pointerEvents: 'auto',
+        backdropFilter: 'blur(16px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+        backgroundColor: 'rgba(17, 25, 40, 0.75)',
+        borderRadius: '12px',
+        border: '1px solid rgba(255, 255, 255, 0.125)',
+        padding: '40px',
+        width: 360,
+        fontFamily: "'Inter', sans-serif",
+        textAlign: 'center',
       }}>
-        <form onSubmit={handleSubmit}>
-          <h3 style={{ margin: '0 0 12px 0', textAlign: 'center' }}>Login</h3>
-          <div style={{ marginBottom: 10 }}>
-            <input
-              placeholder="Usuario"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <input
-              type="password"
-              placeholder="Contraseña"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ccc' }}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={!username || !password}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <h2 style={{ fontSize: '1.8rem', margin: '0 0 10px 0', fontWeight: '600', color: 'white' }}>
+            Iniciar Sesión
+          </h2>
+
+          {error && (
+            <div style={{
+              padding: '12px',
+              borderRadius: '8px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.5)',
+              color: '#f87171',
+              fontSize: '0.9rem'
+            }}>
+              {error}
+            </div>
+          )}
+
+          <input
+            placeholder="Usuario"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            disabled={loading}
             style={{
               width: '100%',
-              padding: 10,
-              borderRadius: 4,
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              background: 'rgba(255, 255, 255, 0.1)',
+              color: 'white',
+              fontSize: '1rem',
+              boxSizing: 'border-box',
+            }}
+          />
+
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              background: 'rgba(255, 255, 255, 0.1)',
+              color: 'white',
+              fontSize: '1rem',
+              boxSizing: 'border-box',
+            }}
+          />
+
+          <button
+            type="submit"
+            disabled={!username || !password || loading}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
               border: 'none',
-              background: '#5227FF',
+              background: loading ? '#6b7280' : '#5227FF',
               color: '#fff',
-              cursor: (username && password) ? 'pointer' : 'not-allowed'
+              cursor: (!username || !password || loading) ? 'not-allowed' : 'pointer',
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              transition: 'background 0.2s ease-in-out, opacity 0.2s ease-in-out',
+              opacity: (!username || !password || loading) ? 0.6 : 1,
             }}
           >
-            Entrar
+            {loading ? 'Iniciando sesión...' : 'Entrar'}
           </button>
         </form>
 
-        {/* Botón de Crear Cuenta */}
-        <div style={{ marginTop: 10, textAlign: 'center' }}>
+        <p style={{ color: 'rgba(255, 255, 255, 0.7)', marginTop: '20px' }}>
+          ¿No tienes cuenta?{' '}
           <button
             onClick={onRegister}
+            disabled={loading}
             style={{
               border: 'none',
               background: 'transparent',
-              color: '#5227FF',
-              cursor: 'pointer',
+              color: '#fff',
+              cursor: loading ? 'not-allowed' : 'pointer',
               textDecoration: 'underline',
               padding: 0,
-              marginTop: 8
+              fontWeight: 'bold',
+              fontSize: 'inherit',
             }}
           >
             Crear cuenta
           </button>
-        </div>
+        </p>
       </div>
     </div>
   );

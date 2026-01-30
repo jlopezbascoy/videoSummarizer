@@ -1,33 +1,33 @@
 import React, { useState } from 'react';
+import { AuthProvider } from './context/AuthContext';
 import Antigravity from './components/AnimatedBackground';
 import Login from './components/Login';
 import Register from './components/Register';
 import MainPage from './components/MainPage';
-// hola mudno
-function App() {
-  const [creds, setCreds] = useState({ username: '', password: '' });
+import { useAuth } from './context/AuthContext';
+
+function AppContent() {
+  const { isAuthenticated, loading } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
 
-  const handleLogin = ({ username, password }) => {
-    setCreds({ username, password });
-  };
-
-  const handleRegister = ({ username, email, password }) => {
-    console.log('Registro:', { username, email, password });
-    setIsRegistering(false);
-    setCreds({ username, password });
-  };
-
-  const handleLogout = () => {
-    setCreds({ username: '', password: '' });
-    setIsRegistering(false);
-  };
-
-  const isLogged = Boolean(creds.username && creds.password);
+  // Mostrar loading mientras se verifica autenticación
+  if (loading) {
+    return (
+      <div style={{ 
+        width: '100vw', 
+        height: '100vh', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        background: '#0a0e1a'
+      }}>
+        <div style={{ color: 'white', fontSize: '1.2rem' }}>Cargando...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      
       {/* Fondo animado siempre activo */}
       <Antigravity
         count={300}
@@ -48,25 +48,25 @@ function App() {
       />
 
       {/* Login / Registro */}
-      {!isLogged && !isRegistering && (
-        <Login
-          onLogin={handleLogin}
-          onRegister={() => setIsRegistering(true)}
-        />
+      {!isAuthenticated && !isRegistering && (
+        <Login onRegister={() => setIsRegistering(true)} />
       )}
 
-      {!isLogged && isRegistering && (
-        <Register
-          onRegister={handleRegister}
-          onBack={() => setIsRegistering(false)}
-        />
+      {!isAuthenticated && isRegistering && (
+        <Register onBack={() => setIsRegistering(false)} />
       )}
 
       {/* Página principal */}
-      {isLogged && (
-        <MainPage onLogout={handleLogout} />
-      )}
+      {isAuthenticated && <MainPage />}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
