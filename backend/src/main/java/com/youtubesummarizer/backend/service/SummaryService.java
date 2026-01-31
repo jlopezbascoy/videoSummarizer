@@ -2,26 +2,27 @@ package com.youtubesummarizer.backend.service;
 
 import com.youtubesummarizer.backend.dto.SummaryRequest;
 import com.youtubesummarizer.backend.dto.SummaryResponse;
-import com.youtubesummarizer.backend.dto.YouTubeVideoResponse;
-import com.youtubesummarizer.backend.exception.YouTubeApiException;
 import com.youtubesummarizer.backend.model.Summary;
 import com.youtubesummarizer.backend.model.User;
 import com.youtubesummarizer.backend.repository.SummaryRepository;
-import lombok.extern.slf4j.Slf4j;
+import com.youtubesummarizer.backend.service.GeminiService.GeminiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Service de resúmenes
- * Gestiona la creación y consulta de resúmenes de videos
+ * Service de resúmenes con integración de IA (OpenAI/Gemini)
  */
-@Slf4j
 @Service
 public class SummaryService {
+
+    private static final Logger logger = LoggerFactory.getLogger(SummaryService.class);
 
     @Autowired
     private SummaryRepository summaryRepository;
@@ -31,213 +32,200 @@ public class SummaryService {
 
     @Autowired
     private RateLimitService rateLimitService;
-    
-    @Autowired
-    private YouTubeService youTubeService;
 
-/**
-     * Genera un resumen de un video de YouTube usando YouTube Data API
+    @Autowired
+    private GeminiService geminiService;
+
+    /**
+     * Genera un resumen de un video de YouTube usando IA
+     * Implementa caché: si el video ya fue resumido, reutiliza el resumen
      */
     @Transactional
     public SummaryResponse generateSummary(SummaryRequest request) {
-        log.info("Iniciando generación de resumen para URL: {}", request.getVideoUrl());
-        
-        // Obtener usuario actual
         User user = userService.getCurrentUser();
 
-        // Verificar límite de peticiones
+        logger.info("Usuario {} solicita resumen para: {}", user.getUsername(), request.getVideoUrl());
+
+        // 1. Verificar límite de peticiones
         if (!rateLimitService.canMakeRequest(user)) {
-            throw new RuntimeException("Has alcanzado el límite de resúmenes diarios. " +
-                    "Límite: " + user.getDailyLimit() + " resúmenes por día.");
-        }
-
-        try {
-            // Paso 1: Validar y extraer ID del video
-            String videoId = youTubeService.extractVideoId(request.getVideoUrl());
-            log.info("ID de video extraído: {}", videoId);
-
-            // Paso 2: Obtener información del video desde YouTube API
-            YouTubeVideoResponse videoInfo = youTubeService.getVideoInfo(videoId);
-            log.info("Información del video obtenida: {}", videoInfo.getTitle());
-
-            // Paso 3: Obtener transcripción (si está disponible)
-            String transcript = youTubeService.getVideoTranscript(videoId, request.getLanguage());
-            
-            // Paso 4: Verificar duración del video según tipo de usuario
-            if (videoInfo.getDuration() != null && !videoInfo.getDuration().isEmpty()) {
-                int videoDurationSeconds = parseDuration(videoInfo.getDuration());
-                int maxDuration = user.getMaxVideoDuration();
-                
-                if (videoDurationSeconds > maxDuration) {
-                    throw new RuntimeException("El video excede la duración máxima permitida para tu tipo de usuario. " +
-                            "Duración del video: " + formatDuration(videoDurationSeconds) + 
-                            ", Máximo permitido: " + formatDuration(maxDuration));
-                }
-            }
-
-            // Paso 5: Generar resumen (temporalmente usamos la descripción/transcripción)
-            String summaryText = generateSummaryFromContent(videoInfo, transcript, request);
-            
-            // Estimar número de palabras
-            int wordCount = summaryText.split("\\s+").length;
-
-            // Paso 6: Crear y guardar el resumen
-            Summary summary = Summary.create(
-                    user,
-                    request.getVideoUrl(),
-                    videoInfo.getTitle(),
-                    summaryText,
-                    request.getLanguage(),
-                    wordCount,
-                    videoInfo.getDuration() != null ? parseDuration(videoInfo.getDuration()) : 0
+            int dailyLimit = user.getDailyLimit();
+            throw new RuntimeException(
+                    "Has alcanzado el límite de resúmenes diarios. " +
+                            "Límite: " + dailyLimit + " resúmenes por día."
             );
-
-            summaryRepository.save(summary);
-            log.info("Resumen guardado exitosamente para video: {}", videoInfo.getTitle());
-
-            // Paso 7: Incrementar contador de uso
-            rateLimitService.incrementUsage(user);
-
-            // Paso 8: Obtener peticiones restantes
-            int remainingRequests = rateLimitService.getRemainingRequests(user);
-
-            // Retornar respuesta
-            return SummaryResponse.from(summary, remainingRequests);
-
-        } catch (YouTubeApiException e) {
-            log.error("Error de YouTube API: {}", e.getMessage());
-            throw new RuntimeException("Error al procesar el video de YouTube: " + e.getMessage());
-        } catch (Exception e) {
-            log.error("Error inesperado generando resumen: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al generar el resumen: " + e.getMessage());
         }
-    }
-    
-    /**
-     * Genera un resumen basado en el contenido del video
-     * TEMPORAL: Esta es una implementación básica. En la próxima fase integraremos Claude API
-     */
-    private String generateSummaryFromContent(YouTubeVideoResponse videoInfo, String transcript, SummaryRequest request) {
-        StringBuilder content = new StringBuilder();
-        
-        // Agregar título
-        content.append("Título: ").append(videoInfo.getTitle()).append("\n\n");
-        
-        // Agregar descripción si existe
-        if (videoInfo.getDescription() != null && !videoInfo.getDescription().trim().isEmpty()) {
-            content.append("Descripción: ").append(videoInfo.getDescription()).append("\n\n");
-        }
-        
-        // Agregar transcripción si existe
-        if (transcript != null && !transcript.trim().isEmpty()) {
-            content.append("Transcripción: ").append(transcript).append("\n\n");
+
+        // 2. Normalizar URL del video
+        String normalizedUrl = normalizeYouTubeUrl(request.getVideoUrl());
+
+        // 3. Buscar en caché (resumen existente para esta URL e idioma)
+        Optional<Summary> cachedSummary = summaryRepository.findFirstByVideoUrlAndLanguageOrderByCreatedAtDesc(
+                normalizedUrl,
+                request.getLanguage()
+        );
+
+        String summaryText;
+        String videoTitle;
+        int wordCount;
+
+        if (cachedSummary.isPresent()) {
+            // Usar resumen cacheado
+            logger.info("Resumen encontrado en caché para {}", normalizedUrl);
+            Summary cached = cachedSummary.get();
+            summaryText = cached.getSummaryText();
+            videoTitle = cached.getVideoTitle();
+            wordCount = cached.getWordCount();
         } else {
-            content.append("Nota: No se pudo obtener la transcripción del video.\n");
+            // Generar nuevo resumen con IA
+            logger.info("Generando nuevo resumen con IA para {}", normalizedUrl);
+
+            try {
+                summaryText = geminiService.summarizeYouTubeVideo(
+                        normalizedUrl,
+                        request.getLanguage(),
+                        request.getMinWords(),
+                        request.getMaxWords()
+                );
+
+                // Extraer título del video (por ahora, usar ID o URL)
+                videoTitle = extractVideoTitle(normalizedUrl);
+                wordCount = countWords(summaryText);
+
+                logger.info("Resumen generado exitosamente: {} palabras", wordCount);
+
+            } catch (GeminiException e) {
+                logger.error("Error de IA: {}", e.getMessage());
+                handleGeminiError(e);
+                throw e; // Nunca llegará aquí por el throw en handleGeminiError
+            } catch (Exception e) {
+                logger.error("Error inesperado al generar resumen: {}", e.getMessage(), e);
+                throw new RuntimeException("Error al generar resumen: " + e.getMessage());
+            }
         }
-        
-        // TEMPORAL: Generar resumen básico
-        String fullContent = content.toString();
-        
-        // Aquí irá la integración con Claude API
-        // Por ahora, creamos un resumen simple basado en el contenido disponible
-        String summary;
-        
-        if (fullContent.length() > 1000) {
-            summary = fullContent.substring(0, 1000) + "...";
-        } else {
-            summary = fullContent;
-        }
-        
-        // Ajustar longitud según el rango solicitado
-        return adjustSummaryLength(summary, request.getWordCountRange());
+
+        // 4. Crear y guardar el resumen para este usuario
+        Summary summary = Summary.create(
+                user,
+                normalizedUrl,
+                videoTitle,
+                summaryText,
+                request.getLanguage(),
+                wordCount,
+                null // videoDurationSeconds - no lo tenemos con IA
+        );
+
+        summaryRepository.save(summary);
+
+        // 5. Incrementar contador de uso
+        rateLimitService.incrementUsage(user);
+
+        // 6. Obtener peticiones restantes
+        int remainingRequests = rateLimitService.getRemainingRequests(user);
+
+        logger.info("Resumen guardado para usuario {}. Peticiones restantes: {}",
+                user.getUsername(), remainingRequests);
+
+        // 7. Retornar respuesta
+        return SummaryResponse.from(summary, remainingRequests);
     }
-    
+
     /**
-     * Ajusta el resumen al rango de palabras solicitado
+     * Normaliza la URL de YouTube para el caché
+     * Convierte variantes de URL al formato estándar
      */
-    private String adjustSummaryLength(String summary, String wordCountRange) {
-        String[] words = summary.split("\\s+");
-        int currentWordCount = words.length;
-        
-        int targetWords;
-        switch (wordCountRange) {
-            case "100-200":
-                targetWords = 150;
-                break;
-            case "200-400":
-                targetWords = 300;
-                break;
-            case "400-600":
-                targetWords = 500;
-                break;
-            default:
-                targetWords = 150;
-        }
-        
-        if (currentWordCount <= targetWords) {
-            return summary;
-        }
-        
-        // Truncar al número de palabras objetivo
-        String[] truncatedWords = new String[targetWords];
-        System.arraycopy(words, 0, truncatedWords, 0, targetWords);
-        
-        return String.join(" ", truncatedWords) + "...";
+    private String normalizeYouTubeUrl(String url) {
+        // Extraer video ID
+        String videoId = extractVideoId(url);
+
+        // Devolver formato estándar
+        return "https://www.youtube.com/watch?v=" + videoId;
     }
-    
+
     /**
-     * Convierte duración ISO 8601 a segundos
+     * Extrae el ID del video de una URL de YouTube
      */
-    private int parseDuration(String isoDuration) {
-        try {
-            // YouTube usa formato PT4M13S (4 minutos 13 segundos)
-            String cleaned = isoDuration.replace("PT", "");
-            
-            int hours = 0, minutes = 0, seconds = 0;
-            
-            if (cleaned.contains("H")) {
-                hours = Integer.parseInt(cleaned.substring(0, cleaned.indexOf("H")));
-                cleaned = cleaned.substring(cleaned.indexOf("H") + 1);
+    private String extractVideoId(String url) {
+        // Patrones comunes de YouTube
+        String[] patterns = {
+                "(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([a-zA-Z0-9_-]{11})",
+                "youtube\\.com\\/embed\\/([a-zA-Z0-9_-]{11})",
+                "youtube\\.com\\/v\\/([a-zA-Z0-9_-]{11})"
+        };
+
+        for (String pattern : patterns) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
+            java.util.regex.Matcher m = p.matcher(url);
+            if (m.find()) {
+                return m.group(1);
             }
-            
-            if (cleaned.contains("M")) {
-                minutes = Integer.parseInt(cleaned.substring(0, cleaned.indexOf("M")));
-                cleaned = cleaned.substring(cleaned.indexOf("M") + 1);
-            }
-            
-            if (cleaned.contains("S")) {
-                seconds = Integer.parseInt(cleaned.substring(0, cleaned.indexOf("S")));
-            }
-            
-            return hours * 3600 + minutes * 60 + seconds;
-        } catch (Exception e) {
-            log.warn("Error parseando duración: {}", isoDuration);
+        }
+
+        // Si no coincide con ningún patrón, asumir que es el ID directamente
+        if (url.matches("^[a-zA-Z0-9_-]{11}$")) {
+            return url;
+        }
+
+        throw new RuntimeException("URL de YouTube inválida: " + url);
+    }
+
+    /**
+     * Extrae el título del video (placeholder - solo devuelve el ID por ahora)
+     */
+    private String extractVideoTitle(String url) {
+        String videoId = extractVideoId(url);
+        return "Video de YouTube - " + videoId;
+    }
+
+    /**
+     * Cuenta palabras en un texto
+     */
+    private int countWords(String text) {
+        if (text == null || text.trim().isEmpty()) {
             return 0;
         }
-    }
-    
-    /**
-     * Formatea segundos a un formato legible
-     */
-    private String formatDuration(int seconds) {
-        int hours = seconds / 3600;
-        int minutes = (seconds % 3600) / 60;
-        int secs = seconds % 60;
-        
-        if (hours > 0) {
-            return String.format("%d:%02d:%02d", hours, minutes, secs);
-        } else {
-            return String.format("%d:%02d", minutes, secs);
-        }
+        return text.trim().split("\\s+").length;
     }
 
     /**
-     * Obtiene el historial de resúmenes del usuario actual
+     * Maneja errores de IA y los convierte en mensajes amigables
      */
+    private void handleGeminiError(GeminiException e) {
+        String message = e.getMessage().toLowerCase();
+
+        if (message.contains("inválida") || message.contains("invalid")) {
+            throw new RuntimeException(
+                    "La URL del video no es válida o el video no está disponible. " +
+                            "Verifica que el enlace sea correcto y que el video sea público."
+            );
+        } else if (message.contains("privado") || message.contains("private") || message.contains("404")) {
+            throw new RuntimeException(
+                    "El video no está disponible, es privado o ha sido eliminado."
+            );
+        } else if (message.contains("límite") || message.contains("limit") || message.contains("429") || message.contains("quota")) {
+            throw new RuntimeException(
+                    "Hemos alcanzado el límite de peticiones a la IA. " +
+                            "Por favor, intenta de nuevo en unos minutos."
+            );
+        } else if (message.contains("api key") || message.contains("403") || message.contains("unauthorized")) {
+            throw new RuntimeException(
+                    "Error de configuración del servicio. Por favor, contacta al administrador."
+            );
+        } else if (message.contains("no disponible") || message.contains("503") || message.contains("500") || message.contains("unavailable")) {
+            throw new RuntimeException(
+                    "El servicio de IA no está disponible temporalmente. Intenta de nuevo en unos minutos."
+            );
+        } else {
+            throw new RuntimeException(
+                    "Error al generar el resumen. Por favor, intenta de nuevo más tarde."
+            );
+        }
+    }
+
+    // ========== Métodos existentes de consulta ==========
+
     @Transactional(readOnly = true)
     public List<SummaryResponse> getUserSummaries() {
         User user = userService.getCurrentUser();
-
         List<Summary> summaries = summaryRepository.findByUserOrderByCreatedAtDesc(user);
 
         return summaries.stream()
@@ -245,13 +233,9 @@ public class SummaryService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Obtiene los últimos N resúmenes del usuario
-     */
     @Transactional(readOnly = true)
     public List<SummaryResponse> getRecentSummaries(int limit) {
         User user = userService.getCurrentUser();
-
         List<Summary> summaries = summaryRepository.findTop10ByUserIdOrderByCreatedAtDesc(user.getId());
 
         return summaries.stream()
@@ -260,17 +244,12 @@ public class SummaryService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Obtiene un resumen por ID
-     */
     @Transactional(readOnly = true)
     public SummaryResponse getSummaryById(Long id) {
         User user = userService.getCurrentUser();
-
         Summary summary = summaryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Resumen no encontrado"));
 
-        // Verificar que el resumen pertenece al usuario
         if (!summary.getUser().getId().equals(user.getId())) {
             throw new RuntimeException("No tienes permiso para ver este resumen");
         }
@@ -278,27 +257,20 @@ public class SummaryService {
         return SummaryResponse.from(summary);
     }
 
-    /**
-     * Elimina un resumen
-     */
     @Transactional
     public void deleteSummary(Long id) {
         User user = userService.getCurrentUser();
-
         Summary summary = summaryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Resumen no encontrado"));
 
-        // Verificar que el resumen pertenece al usuario
         if (!summary.getUser().getId().equals(user.getId())) {
             throw new RuntimeException("No tienes permiso para eliminar este resumen");
         }
 
         summaryRepository.delete(summary);
+        logger.info("Resumen {} eliminado por usuario {}", id, user.getUsername());
     }
 
-    /**
-     * Obtiene el conteo total de resúmenes del usuario
-     */
     @Transactional(readOnly = true)
     public long getUserSummaryCount() {
         User user = userService.getCurrentUser();

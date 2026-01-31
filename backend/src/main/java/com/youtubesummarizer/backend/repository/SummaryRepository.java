@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository para la entidad Summary
@@ -51,4 +52,20 @@ public interface SummaryRepository extends JpaRepository<Summary, Long> {
      * @return lista de resúmenes en el rango
      */
     List<Summary> findByUserIdAndCreatedAtBetween(Long userId, LocalDateTime startDate, LocalDateTime endDate);
+
+    /**
+     * Busca un resumen por URL de video y idioma (para caché)
+     * @param videoUrl URL del video
+     * @param language idioma del resumen
+     * @return Optional con el resumen si existe
+     */
+    Optional<Summary> findFirstByVideoUrlAndLanguageOrderByCreatedAtDesc(String videoUrl, String language);
+
+    /**
+     * Verifica si existe un resumen para una URL y idioma específicos
+     * @param videoUrl URL del video
+     * @param language idioma
+     * @return true si existe
+     */
+    boolean existsByVideoUrlAndLanguage(String videoUrl, String language);
 }
