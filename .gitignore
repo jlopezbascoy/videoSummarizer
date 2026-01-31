@@ -1,9 +1,0 @@
-# Backend Maven
-/backend/target/
-/backend/*.log
-/backend/*.class
-
-# Frontend Node/React/Angular
-/frontend/node_modules/
-/frontend/build/
-/frontend/dist/
