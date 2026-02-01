@@ -39,7 +39,7 @@ public class GeminiService {
             String prompt = buildPrompt(videoUrl, language, minWords, maxWords);
 
             GenerateContentResponse response = client.models.generateContent(
-                    "gemini-3-flash-preview",
+                    "gemini-3-pro-preview",
                     prompt,
                     null
             );

@@ -104,6 +104,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos (sin autenticación)
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/test/**").permitAll()  // AGREGADO: Permitir endpoints de prueba
                         .requestMatchers("/error").permitAll()
 
                         // Todos los demás endpoints requieren autenticación
