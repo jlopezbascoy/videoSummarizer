@@ -212,7 +212,7 @@ public class AudioTestController {
 
             result.put("success", true);
             result.put("transcriptionLength", transcription.length());
-            result.put("transcriptionPreview", preview);
+            result.put("transcription", transcription);
             result.put("audioSizeMB", String.format("%.2f MB", audioSize / (1024.0 * 1024.0)));
             result.put("language", language);
             result.put("downloadTimeMs", downloadTime);

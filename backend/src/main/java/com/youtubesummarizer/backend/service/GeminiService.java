@@ -7,8 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Servicio para interactuar con la API de Gemini
- * Genera resúmenes de videos de YouTube usando IA
+ * Servicio para generar resumenes de texto usando Gemini
  */
 @Service
 public class GeminiService {
@@ -22,24 +21,36 @@ public class GeminiService {
     }
 
     /**
-     * Genera un resumen de un video de YouTube usando Gemini
+     * Genera un resumen de una transcripcion de video
      *
-     * @param videoUrl URL del video de YouTube
-     * @param language Idioma del resumen (es, en, fr, etc.)
-     * @param minWords Mínimo de palabras para el resumen
-     * @param maxWords Máximo de palabras para el resumen
-     * @return Texto del resumen generado
-     * @throws GeminiException Si hay algún error con la API de Gemini
+     * @param transcriptionText Texto transcrito del video
+     * @param videoTitle Titulo del video (opcional)
+     * @param language Idioma del resumen
+     * @param minWords Minimo de palabras
+     * @param maxWords Maximo de palabras
+     * @return Resumen generado
      */
-    public String summarizeYouTubeVideo(String videoUrl, String language, int minWords, int maxWords) {
+    public String summarizeTranscription(String transcriptionText, String videoTitle, String language,
+                                         int minWords, int maxWords) {
         try {
-            logger.info("Solicitando resumen a Gemini para video: {}", videoUrl);
-            logger.info("Parámetros: idioma={}, palabras={}-{}", language, minWords, maxWords);
+            logger.info("Generando resumen de transcripcion");
+            logger.info("Parametros: idioma={}, palabras={}-{}", language, minWords, maxWords);
+            logger.info("Longitud transcripcion: {} caracteres", transcriptionText.length());
 
-            String prompt = buildPrompt(videoUrl, language, minWords, maxWords);
+            // Limitar longitud de transcripcion si es muy larga
+            String textToSummarize = transcriptionText;
+            int maxChars = 80000;
+
+            if (textToSummarize.length() > maxChars) {
+                logger.warn("Transcripcion muy larga ({}), truncando a {} caracteres",
+                        textToSummarize.length(), maxChars);
+                textToSummarize = textToSummarize.substring(0, maxChars);
+            }
+
+            String prompt = buildSummaryPrompt(textToSummarize, videoTitle, language, minWords, maxWords);
 
             GenerateContentResponse response = client.models.generateContent(
-                    "gemini-3-pro-preview",
+                    "gemini-3-flash-preview",
                     prompt,
                     null
             );
@@ -47,8 +58,8 @@ public class GeminiService {
             String summaryText = response.text();
 
             if (summaryText == null || summaryText.trim().isEmpty()) {
-                logger.error("Gemini devolvió una respuesta vacía");
-                throw new GeminiException("La IA no pudo generar un resumen para este video");
+                logger.error("Gemini devolvio respuesta vacia");
+                throw new GeminiException("La IA no pudo generar un resumen");
             }
 
             logger.info("Resumen generado exitosamente. Longitud: {} caracteres", summaryText.length());
@@ -61,53 +72,63 @@ public class GeminiService {
     }
 
     /**
-     * Construye el prompt para Gemini según los parámetros especificados
+     * Construye el prompt para generar el resumen
      */
-    private String buildPrompt(String videoUrl, String language, int minWords, int maxWords) {
+    private String buildSummaryPrompt(String transcription, String videoTitle, String language,
+                                      int minWords, int maxWords) {
         String languageName = getLanguageName(language);
 
+        String titleInfo = (videoTitle != null && !videoTitle.isEmpty())
+                ? "Titulo del video: " + videoTitle + "\n\n"
+                : "";
+
         return String.format("""
-            Analiza y resume el siguiente video de YouTube: %s en el siguiente idioma: ( %s ) con un minimo de %d palabras y un maximo de %d palabras:
+            %sTe proporciono la transcripcion completa de un video de YouTube.
+            
+            TRANSCRIPCION:
+            %s
+            
+            TAREA:
+            Genera un resumen estructurado en %s con las siguientes caracteristicas:
             
             FORMATO REQUERIDO:
-            1. Comienza con una breve introducción de 1-2 frases explicando el tema principal del video
-            2. Continúa con "Aquí tienes un resumen de los puntos clave:"
+            1. Comienza con una breve introduccion de 1-2 frases explicando el tema principal
+            2. Continua con "Aqui tienes un resumen de los puntos clave:"
             3. Organiza el contenido usando viñetas (*) para los puntos principales
-            4. Incluye las marcas de tiempo [MM:SS] cuando sea relevante, especialmente para pasos importantes
-            5. Usa sub-viñetas (con espacios de indentación) para detalles específicos bajo cada punto principal
+            4. Usa sub-viñetas (con espacios de indentacion) para detalles especificos
             
             EJEMPLO DE FORMATO:
-            Este video tutorial explica [tema principal del video].
-            Aquí tienes un resumen de los puntos clave:
-            * Punto Principal 1: Descripción breve [00:34].
-            * Punto Principal 2: Descripción breve [01:20].
-               * Sub-punto o detalle adicional [03:23].
+            Este video explica [tema principal].
+            Aqui tienes un resumen de los puntos clave:
+            * Punto Principal 1: Descripcion breve.
+            * Punto Principal 2: Descripcion breve.
+               * Sub-punto o detalle adicional.
             * Punto Principal 3:
-               * Detalle 1 [05:32].
-               * Detalle 2 [06:40].
+               * Detalle 1.
+               * Detalle 2.
             
             REQUISITOS:
             - Idioma: %s
             - Longitud: entre %d y %d palabras
             - Usa un tono claro y profesional
-            - Extrae y menciona marcas de tiempo importantes del video
-            - Organiza la información de forma jerárquica y estructurada
-            - Sé específico y concreto en cada punto
+            - Organiza la informacion de forma jerarquica
+            - Se especifico y concreto en cada punto
+            - NO inventes informacion que no este en la transcripcion
+            - Si la transcripcion esta incompleta, indica que el resumen esta basado en contenido parcial
             
             Genera SOLO el resumen siguiendo este formato exacto.
             """,
-                videoUrl,        // %s
-                languageName,   // %s
-                minWords,       // %d
-                maxWords,       // %d
-                languageName,   // %s
-                minWords,       // %d
-                maxWords        // %d
+                titleInfo,
+                transcription,
+                languageName,
+                languageName,
+                minWords,
+                maxWords
         );
     }
 
     /**
-     * Convierte el código de idioma a su nombre completo
+     * Convierte codigo de idioma a nombre completo
      */
     private String getLanguageName(String languageCode) {
         return switch (languageCode.toLowerCase()) {
@@ -119,12 +140,12 @@ public class GeminiService {
             case "pt" -> "Português";
             case "ca" -> "Català";
             case "gl" -> "Galego";
-            default -> "Español"; // Por defecto español
+            default -> "Español";
         };
     }
 
     /**
-     * Excepción personalizada para errores de Gemini
+     * Excepcion personalizada para errores de Gemini
      */
     public static class GeminiException extends RuntimeException {
         public GeminiException(String message) {

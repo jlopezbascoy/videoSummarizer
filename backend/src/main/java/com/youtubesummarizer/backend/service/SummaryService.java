@@ -12,12 +12,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Service de resúmenes con integración de IA (OpenAI/Gemini)
+ * Servicio de resumenes con flujo completo: Audio → Transcripcion → Resumen
  */
 @Service
 public class SummaryService {
@@ -34,11 +35,17 @@ public class SummaryService {
     private RateLimitService rateLimitService;
 
     @Autowired
+    private YouTubeAudioService audioService;
+
+    @Autowired
+    private TranscriptionService transcriptionService;
+
+    @Autowired
     private GeminiService geminiService;
 
     /**
-     * Genera un resumen de un video de YouTube usando IA
-     * Implementa caché: si el video ya fue resumido, reutiliza el resumen
+     * Genera un resumen de un video de YouTube
+     * Flujo: Descargar Audio → Transcribir → Resumir → Guardar
      */
     @Transactional
     public SummaryResponse generateSummary(SummaryRequest request) {
@@ -46,19 +53,19 @@ public class SummaryService {
 
         logger.info("Usuario {} solicita resumen para: {}", user.getUsername(), request.getVideoUrl());
 
-        // 1. Verificar límite de peticiones
+        // 1. Verificar limite de peticiones
         if (!rateLimitService.canMakeRequest(user)) {
             int dailyLimit = user.getDailyLimit();
             throw new RuntimeException(
-                    "Has alcanzado el límite de resúmenes diarios. " +
-                            "Límite: " + dailyLimit + " resúmenes por día."
+                    "Has alcanzado el limite de resumenes diarios. " +
+                            "Limite: " + dailyLimit + " resumenes por dia."
             );
         }
 
         // 2. Normalizar URL del video
         String normalizedUrl = normalizeYouTubeUrl(request.getVideoUrl());
 
-        // 3. Buscar en caché (resumen existente para esta URL e idioma)
+        // 3. Buscar en cache (resumen existente para esta URL e idioma)
         Optional<Summary> cachedSummary = summaryRepository.findFirstByVideoUrlAndLanguageOrderByCreatedAtDesc(
                 normalizedUrl,
                 request.getLanguage()
@@ -70,36 +77,59 @@ public class SummaryService {
 
         if (cachedSummary.isPresent()) {
             // Usar resumen cacheado
-            logger.info("Resumen encontrado en caché para {}", normalizedUrl);
+            logger.info("Resumen encontrado en cache para {}", normalizedUrl);
             Summary cached = cachedSummary.get();
             summaryText = cached.getSummaryText();
             videoTitle = cached.getVideoTitle();
             wordCount = cached.getWordCount();
         } else {
-            // Generar nuevo resumen con IA
-            logger.info("Generando nuevo resumen con IA para {}", normalizedUrl);
+            // Generar nuevo resumen
+            logger.info("Generando nuevo resumen para {}", normalizedUrl);
 
+            Path audioFile = null;
             try {
-                summaryText = geminiService.summarizeYouTubeVideo(
-                        normalizedUrl,
+                // Paso 1: Descargar audio
+                logger.info("PASO 1/3: Descargando audio...");
+                audioFile = audioService.downloadAudio(normalizedUrl);
+                logger.info("Audio descargado exitosamente");
+
+                // Paso 2: Transcribir audio
+                logger.info("PASO 2/3: Transcribiendo audio a texto...");
+                String transcription = transcriptionService.transcribeAudio(audioFile, request.getLanguage());
+                logger.info("Transcripcion completada: {} caracteres", transcription.length());
+
+                // Paso 3: Generar resumen
+                logger.info("PASO 3/3: Generando resumen con IA...");
+                videoTitle = extractVideoTitle(normalizedUrl);
+                summaryText = geminiService.summarizeTranscription(
+                        transcription,
+                        videoTitle,
                         request.getLanguage(),
                         request.getMinWords(),
                         request.getMaxWords()
                 );
-
-                // Extraer título del video (por ahora, usar ID o URL)
-                videoTitle = extractVideoTitle(normalizedUrl);
                 wordCount = countWords(summaryText);
 
                 logger.info("Resumen generado exitosamente: {} palabras", wordCount);
 
+            } catch (YouTubeAudioService.AudioDownloadException e) {
+                logger.error("Error al descargar audio: {}", e.getMessage());
+                throw new RuntimeException("No se pudo descargar el audio del video. Verifica que la URL sea valida y el video este disponible.");
+            } catch (TranscriptionService.TranscriptionException e) {
+                logger.error("Error al transcribir: {}", e.getMessage());
+                throw new RuntimeException("No se pudo transcribir el audio. El video puede ser muy largo o el audio no es claro.");
             } catch (GeminiException e) {
                 logger.error("Error de IA: {}", e.getMessage());
                 handleGeminiError(e);
-                throw e; // Nunca llegará aquí por el throw en handleGeminiError
+                throw e;
             } catch (Exception e) {
                 logger.error("Error inesperado al generar resumen: {}", e.getMessage(), e);
                 throw new RuntimeException("Error al generar resumen: " + e.getMessage());
+            } finally {
+                // Limpiar archivo de audio temporal
+                if (audioFile != null) {
+                    audioService.cleanupAudioFile(audioFile);
+                }
             }
         }
 
@@ -111,7 +141,7 @@ public class SummaryService {
                 summaryText,
                 request.getLanguage(),
                 wordCount,
-                null // videoDurationSeconds - no lo tenemos con IA
+                null
         );
 
         summaryRepository.save(summary);
@@ -130,14 +160,10 @@ public class SummaryService {
     }
 
     /**
-     * Normaliza la URL de YouTube para el caché
-     * Convierte variantes de URL al formato estándar
+     * Normaliza la URL de YouTube para el cache
      */
     private String normalizeYouTubeUrl(String url) {
-        // Extraer video ID
         String videoId = extractVideoId(url);
-
-        // Devolver formato estándar
         return "https://www.youtube.com/watch?v=" + videoId;
     }
 
@@ -145,7 +171,6 @@ public class SummaryService {
      * Extrae el ID del video de una URL de YouTube
      */
     private String extractVideoId(String url) {
-        // Patrones comunes de YouTube
         String[] patterns = {
                 "(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/)([a-zA-Z0-9_-]{11})",
                 "youtube\\.com\\/embed\\/([a-zA-Z0-9_-]{11})",
@@ -160,16 +185,15 @@ public class SummaryService {
             }
         }
 
-        // Si no coincide con ningún patrón, asumir que es el ID directamente
         if (url.matches("^[a-zA-Z0-9_-]{11}$")) {
             return url;
         }
 
-        throw new RuntimeException("URL de YouTube inválida: " + url);
+        throw new RuntimeException("URL de YouTube invalida: " + url);
     }
 
     /**
-     * Extrae el título del video (placeholder - solo devuelve el ID por ahora)
+     * Extrae el titulo del video
      */
     private String extractVideoTitle(String url) {
         String videoId = extractVideoId(url);
@@ -192,36 +216,27 @@ public class SummaryService {
     private void handleGeminiError(GeminiException e) {
         String message = e.getMessage().toLowerCase();
 
-        if (message.contains("inválida") || message.contains("invalid")) {
+        if (message.contains("limite") || message.contains("limit") || message.contains("429") || message.contains("quota")) {
             throw new RuntimeException(
-                    "La URL del video no es válida o el video no está disponible. " +
-                            "Verifica que el enlace sea correcto y que el video sea público."
-            );
-        } else if (message.contains("privado") || message.contains("private") || message.contains("404")) {
-            throw new RuntimeException(
-                    "El video no está disponible, es privado o ha sido eliminado."
-            );
-        } else if (message.contains("límite") || message.contains("limit") || message.contains("429") || message.contains("quota")) {
-            throw new RuntimeException(
-                    "Hemos alcanzado el límite de peticiones a la IA. " +
+                    "Hemos alcanzado el limite de peticiones a la IA. " +
                             "Por favor, intenta de nuevo en unos minutos."
             );
         } else if (message.contains("api key") || message.contains("403") || message.contains("unauthorized")) {
             throw new RuntimeException(
-                    "Error de configuración del servicio. Por favor, contacta al administrador."
+                    "Error de configuracion del servicio. Por favor, contacta al administrador."
             );
         } else if (message.contains("no disponible") || message.contains("503") || message.contains("500") || message.contains("unavailable")) {
             throw new RuntimeException(
-                    "El servicio de IA no está disponible temporalmente. Intenta de nuevo en unos minutos."
+                    "El servicio de IA no esta disponible temporalmente. Intenta de nuevo en unos minutos."
             );
         } else {
             throw new RuntimeException(
-                    "Error al generar el resumen. Por favor, intenta de nuevo más tarde."
+                    "Error al generar el resumen. Por favor, intenta de nuevo mas tarde."
             );
         }
     }
 
-    // ========== Métodos existentes de consulta ==========
+    // ========== Metodos existentes de consulta ==========
 
     @Transactional(readOnly = true)
     public List<SummaryResponse> getUserSummaries() {
