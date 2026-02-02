@@ -93,7 +93,7 @@ public class GeminiService {
             
             FORMATO REQUERIDO:
             1. Comienza con una breve introduccion de 1-2 frases explicando el tema principal
-            2. Continua con "Aqui tienes un resumen de los puntos clave:"
+            2. Continua con "Aqui tienes un resumen de los puntos clave:" en el idioma indicado siempre
             3. Organiza el contenido usando viñetas (*) para los puntos principales
             4. Usa sub-viñetas (con espacios de indentacion) para detalles especificos
             
