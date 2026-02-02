@@ -29,6 +29,7 @@ export default function MainPage() {
   const [language, setLanguage] = useState(LANGUAGES[0]);
   const [summaryLength, setSummaryLength] = useState('100-200');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(''); // Paso actual del proceso
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [currentSummary, setCurrentSummary] = useState(null);
@@ -73,6 +74,7 @@ export default function MainPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    setLoadingStep('Iniciando...');
 
     if (!videoURL) {
       setError('Ingresa un enlace de YouTube');
@@ -81,11 +83,28 @@ export default function MainPage() {
     }
 
     try {
+      // Simular pasos de progreso (estimados)
+      setLoadingStep('Descargando audio del video...');
+      
+      // Después de 10 segundos, cambiar mensaje
+      const timer1 = setTimeout(() => {
+        setLoadingStep('Transcribiendo audio a texto...');
+      }, 10000);
+
+      // Después de 40 segundos, cambiar mensaje
+      const timer2 = setTimeout(() => {
+        setLoadingStep('Generando resumen con IA...');
+      }, 40000);
+
       const result = await generateSummary({
         videoUrl: videoURL,
         language: language.value,
         wordCountRange: summaryLength,
       });
+
+      // Limpiar timers
+      clearTimeout(timer1);
+      clearTimeout(timer2);
 
       setCurrentSummary(result);
       setRemainingRequests(result.remainingRequests);
@@ -93,9 +112,12 @@ export default function MainPage() {
       setVideoURL('');
       await loadStats();
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al generar resumen');
+      const errorMessage = err.response?.data?.error || err.message || 'Error al generar resumen';
+      setError(errorMessage);
+      console.error('Error completo:', err);
     } finally {
       setLoading(false);
+      setLoadingStep('');
     }
   };
 
@@ -141,7 +163,7 @@ export default function MainPage() {
               Hola, {user?.username}
             </h2>
             <p style={{ margin: '5px 0 0 0', color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.85rem' }}>
-              {user?.userType} • {stats?.remainingRequests ?? '...'} resúmenes restantes hoy
+              {user?.userType} • {stats?.remainingRequests ?? '...'} resumenes restantes hoy
             </p>
           </div>
           <button onClick={logout} style={{
@@ -181,7 +203,7 @@ export default function MainPage() {
         {activeTab === 'generate' && (
           <div>
             <p style={{ marginBottom: '20px', color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>
-              Pega un enlace de YouTube para obtener un resumen rápido
+              Pega un enlace de YouTube para obtener un resumen rapido
             </p>
 
             {error && (
@@ -194,6 +216,33 @@ export default function MainPage() {
                 fontSize: '0.9rem',
                 marginBottom: '15px',
               }}>{error}</div>
+            )}
+
+            {loading && loadingStep && (
+              <div style={{
+                padding: '15px',
+                borderRadius: '8px',
+                background: 'rgba(82, 39, 255, 0.1)',
+                border: '1px solid rgba(82, 39, 255, 0.3)',
+                marginBottom: '15px',
+                textAlign: 'center',
+              }}>
+                <div style={{
+                  width: '24px',
+                  height: '24px',
+                  border: '3px solid rgba(82, 39, 255, 0.3)',
+                  borderTopColor: '#5227FF',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  margin: '0 auto 10px auto',
+                }}></div>
+                <p style={{ color: 'white', margin: 0, fontSize: '0.95rem', fontWeight: '500' }}>
+                  {loadingStep}
+                </p>
+                <p style={{ color: 'rgba(255, 255, 255, 0.6)', margin: '5px 0 0 0', fontSize: '0.85rem' }}>
+                  Esto puede tardar 2-5 minutos, por favor espera...
+                </p>
+              </div>
             )}
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -225,8 +274,14 @@ export default function MainPage() {
                 width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
                 background: loading ? '#6b7280' : '#5227FF', color: '#fff',
                 cursor: loading ? 'not-allowed' : 'pointer', fontSize: '1.1rem', fontWeight: 'bold',
-              }}>{loading ? 'Generando...' : '✨ Generar Resumen'}</button>
+              }}>{loading ? 'Procesando...' : '✨ Generar Resumen'}</button>
             </form>
+
+            <style>{`
+              @keyframes spin {
+                to { transform: rotate(360deg); }
+              }
+            `}</style>
           </div>
         )}
 
@@ -234,7 +289,7 @@ export default function MainPage() {
           <div>
             {loadingHistory ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>Cargando...</p>
             ) : summaries.length === 0 ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>
-                Aún no has generado ningún resumen</p>
+                Aun no has generado ningun resumen</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 {summaries.map((s) => (

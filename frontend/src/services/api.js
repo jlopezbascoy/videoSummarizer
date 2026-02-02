@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Configuración base de axios
+// Configuracion base de axios
 const API_BASE_URL = 'http://localhost:8080/api';
 
 const api = axios.create({
@@ -8,6 +8,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 300000, // 5 minutos para transcripcion + resumen
 });
 
 // Interceptor para incluir el token JWT en todas las peticiones
@@ -24,12 +25,12 @@ api.interceptors.request.use(
   }
 );
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticacion
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token inválido o expirado
+      // Token invalido o expirado
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/';
@@ -53,7 +54,7 @@ export const register = async (data) => {
 };
 
 /**
- * Inicia sesión
+ * Inicia sesion
  * @param {Object} data - { username, password }
  * @returns {Promise} - { token, userId, username, email, userType, dailyLimit, maxVideoDuration }
  */
@@ -63,7 +64,7 @@ export const login = async (data) => {
 };
 
 /**
- * Obtiene información del usuario autenticado
+ * Obtiene informacion del usuario autenticado
  * @returns {Promise} - { id, username, email, userType, dailyLimit, maxVideoDuration, createdAt }
  */
 export const getCurrentUser = async () => {
@@ -72,7 +73,7 @@ export const getCurrentUser = async () => {
 };
 
 /**
- * Verifica si el token es válido
+ * Verifica si el token es valido
  * @returns {Promise} - { authenticated, username }
  */
 export const checkAuth = async () => {
@@ -86,6 +87,7 @@ export const checkAuth = async () => {
 
 /**
  * Genera un resumen de un video de YouTube
+ * NOTA: Este proceso puede tardar 2-5 minutos
  * @param {Object} data - { videoUrl, language, wordCountRange }
  * @returns {Promise} - { id, videoUrl, videoTitle, summaryText, language, wordCount, videoDurationSeconds, createdAt, remainingRequests }
  */
@@ -95,8 +97,8 @@ export const generateSummary = async (data) => {
 };
 
 /**
- * Obtiene el historial completo de resúmenes del usuario
- * @returns {Promise} - Array de resúmenes
+ * Obtiene el historial completo de resumenes del usuario
+ * @returns {Promise} - Array de resumenes
  */
 export const getSummaryHistory = async () => {
   const response = await api.get('/summaries/history');
@@ -104,9 +106,9 @@ export const getSummaryHistory = async () => {
 };
 
 /**
- * Obtiene los últimos N resúmenes
- * @param {number} limit - Número de resúmenes a obtener (default: 10)
- * @returns {Promise} - Array de resúmenes
+ * Obtiene los ultimos N resumenes
+ * @param {number} limit - Numero de resumenes a obtener (default: 10)
+ * @returns {Promise} - Array de resumenes
  */
 export const getRecentSummaries = async (limit = 10) => {
   const response = await api.get(`/summaries/recent?limit=${limit}`);
@@ -114,7 +116,7 @@ export const getRecentSummaries = async (limit = 10) => {
 };
 
 /**
- * Obtiene un resumen específico por ID
+ * Obtiene un resumen especifico por ID
  * @param {number} id - ID del resumen
  * @returns {Promise} - Resumen
  */
@@ -134,7 +136,7 @@ export const deleteSummary = async (id) => {
 };
 
 /**
- * Obtiene estadísticas del usuario
+ * Obtiene estadisticas del usuario
  * @returns {Promise} - { totalSummaries, remainingRequests, todayUsage, dailyLimit, userType }
  */
 export const getUserStats = async () => {
@@ -148,7 +150,7 @@ export const getUserStats = async () => {
 
 /**
  * Obtiene el perfil completo del usuario
- * @returns {Promise} - Perfil completo con información de uso
+ * @returns {Promise} - Perfil completo con informacion de uso
  */
 export const getUserProfile = async () => {
   const response = await api.get('/users/profile');
@@ -156,7 +158,7 @@ export const getUserProfile = async () => {
 };
 
 /**
- * Obtiene información sobre límites del usuario
+ * Obtiene informacion sobre limites del usuario
  * @returns {Promise} - { userType, dailyLimit, maxVideoDurationSeconds, remainingRequests, todayUsage, hasReachedLimit }
  */
 export const getUserLimits = async () => {
@@ -189,7 +191,7 @@ export const saveAuthData = (token, user) => {
 };
 
 /**
- * Elimina los datos de autenticación de localStorage
+ * Elimina los datos de autenticacion de localStorage
  */
 export const clearAuthData = () => {
   localStorage.removeItem('token');
