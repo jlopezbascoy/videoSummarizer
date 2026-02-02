@@ -32,7 +32,30 @@ build/
 ### VS Code ###
 .vscode/
 
-# Secrets - CORREGIDO
+# ===============================
+# SECURITY - Secrets y archivos sensibles
+# ===============================
 application-local.properties
 **/application-local.properties
 src/main/resources/application-local.properties
+.env
+.env.local
+.env.production
+
+# ===============================
+# TEMPORARY FILES - Python y descargas
+# ===============================
+# Python API downloads
+yt-audio-api/downloads/
+**/downloads/*.mp3
+**/downloads/*.m4a
+
+# Temporary audio files
+temp/
+tmp/
+*.tmp
+
+# Logs que pueden contener info sensible
+*.log
+logs/
+spring.log

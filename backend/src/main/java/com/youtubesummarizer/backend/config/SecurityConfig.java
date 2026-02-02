@@ -1,6 +1,8 @@
 package com.youtubesummarizer.backend.config;
 
+import com.youtubesummarizer.backend.security.IpRateLimitFilter;
 import com.youtubesummarizer.backend.security.JwtAuthenticationFilter;
+import jakarta.servlet.Filter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +39,9 @@ public class SecurityConfig {
 
     @Autowired
     private UserDetailsService userDetailsService;
+
+    @Autowired
+    private IpRateLimitFilter ipRateLimitFilter;
 
     /**
      * Configura el encoder de contraseñas (BCrypt)
@@ -104,14 +109,16 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos (sin autenticación)
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/test/**").permitAll()  // AGREGADO: Permitir endpoints de prueba
+                        .requestMatchers("/api/test/**").permitAll()
                         .requestMatchers("/error").permitAll()
 
                         // Todos los demás endpoints requieren autenticación
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                    .addFilterBefore(ipRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
+
 
         return http.build();
     }

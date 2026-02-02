@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * DTO para peticiones de crear resumen de video
+ * Con sanitizacion y validacion
  */
 @Data
 @NoArgsConstructor
@@ -17,11 +18,15 @@ public class SummaryRequest {
     @NotBlank(message = "La URL del video es obligatoria")
     @Pattern(
             regexp = "^(https?://)?(www\\.)?(youtube\\.com/watch\\?v=|youtu\\.be/)([a-zA-Z0-9_-]{11}).*$",
-            message = "La URL debe ser un enlace válido de YouTube"
+            message = "La URL debe ser un enlace valido de YouTube"
     )
     private String videoUrl;
 
     @NotBlank(message = "El idioma es obligatorio")
+    @Pattern(
+            regexp = "^(es|en|fr|de|it|pt|ru|zh|ja|ko|ar|hi|tr|vi|pl|ca|gl)$",
+            message = "Idioma no soportado"
+    )
     private String language;
 
     @NotBlank(message = "El rango de palabras es obligatorio")
@@ -32,9 +37,30 @@ public class SummaryRequest {
     private String wordCountRange;
 
     /**
+     * MEJORA: Setter con sanitizacion para videoUrl
+     */
+    public void setVideoUrl(String videoUrl) {
+        if (videoUrl != null) {
+            // Sanitizar: trim y eliminar caracteres peligrosos (XSS prevention)
+            this.videoUrl = videoUrl.trim().replaceAll("[<>\"'`]", "");
+        }
+    }
+
+    /**
+     * MEJORA: Setter con sanitizacion para language
+     */
+    public void setLanguage(String language) {
+        if (language != null) {
+            this.language = language.trim().toLowerCase();
+        }
+    }
+
+    /**
      * Extrae el ID del video de YouTube de la URL
      */
     public String extractVideoId() {
+        if (videoUrl == null) return null;
+
         if (videoUrl.contains("youtu.be/")) {
             return videoUrl.split("youtu.be/")[1].split("[?&]")[0];
         } else if (videoUrl.contains("watch?v=")) {
@@ -44,7 +70,7 @@ public class SummaryRequest {
     }
 
     /**
-     * Obtiene el límite máximo de palabras según el rango
+     * Obtiene el limite maximo de palabras segun el rango
      */
     public int getMaxWords() {
         return switch (wordCountRange) {
@@ -56,7 +82,7 @@ public class SummaryRequest {
     }
 
     /**
-     * Obtiene el límite mínimo de palabras según el rango
+     * Obtiene el limite minimo de palabras segun el rango
      */
     public int getMinWords() {
         return switch (wordCountRange) {
@@ -65,5 +91,17 @@ public class SummaryRequest {
             case "400-600" -> 400;
             default -> 100;
         };
+    }
+
+    /**
+     * toString seguro para logging (no exponer URL completa)
+     */
+    @Override
+    public String toString() {
+        return "SummaryRequest{" +
+                "videoId='" + extractVideoId() + '\'' +
+                ", language='" + language + '\'' +
+                ", wordCountRange='" + wordCountRange + '\'' +
+                '}';
     }
 }
