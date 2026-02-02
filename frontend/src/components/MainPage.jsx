@@ -163,8 +163,7 @@ export default function MainPage() {
               Hola, {user?.username}
             </h2>
             <p style={{ margin: '5px 0 0 0', color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.85rem' }}>
-              {user?.userType} • {stats?.remainingRequests ?? '...'} resumenes restantes hoy
-            </p>
+{user?.userType} • {stats?.remainingRequests !== undefined ? `${stats.remainingRequests} resumenes restantes` : 'Cargando...'}            </p>
           </div>
           <button onClick={logout} style={{
             padding: '8px 16px',
