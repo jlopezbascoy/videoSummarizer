@@ -9,6 +9,7 @@ import {
   downloadAudio 
 } from '../services/api';
 import SummaryModal from './SummaryModal';
+import ConfirmModal from './ConfirmModal';
 
 const LANGUAGES = [
   { value: 'es', label: 'Español' },
@@ -52,6 +53,21 @@ export default function MainPage() {
   const [audioError, setAudioError] = useState('');
   const [audioSuccess, setAudioSuccess] = useState('');
 
+  // Estados para validaciones de inputs
+  const [videoURLError, setVideoURLError] = useState('');
+  const [audioURLError, setAudioURLError] = useState('');
+
+  // Estado para animación de transición de tabs
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Estados para modales de confirmación
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    type: null, // 'delete' o 'logout'
+    data: null, // ID del resumen a eliminar
+  });
+  const [confirmLoading, setConfirmLoading] = useState(false);
+
   useEffect(() => {
     loadStats();
   }, []);
@@ -84,17 +100,31 @@ export default function MainPage() {
     }
   };
 
+  // Función para validar URL de YouTube
+  const isValidYouTubeURL = (url) => {
+    if (!url || url.trim() === '') return false;
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/;
+    return youtubeRegex.test(url);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-    setLoadingStep('Iniciando...');
+    setVideoURLError('');
 
-    if (!videoURL) {
-      setError('Ingresa un enlace de YouTube');
-      setLoading(false);
+    // Validación de URL
+    if (!videoURL || videoURL.trim() === '') {
+      setVideoURLError('Debes introducir una URL de YouTube');
       return;
     }
+
+    if (!isValidYouTubeURL(videoURL)) {
+      setVideoURLError('Debes introducir una URL de YouTube válida');
+      return;
+    }
+
+    setLoading(true);
+    setLoadingStep('Iniciando...');
 
     try {
       setLoadingStep('Descargando audio del video...');
@@ -132,28 +162,87 @@ export default function MainPage() {
   };
 
   const handleDeleteSummary = async (id) => {
-    if (!window.confirm('¿Seguro que quieres eliminar este resumen?')) return;
+    setConfirmModal({
+      isOpen: true,
+      type: 'delete',
+      data: id,
+    });
+  };
+
+  const handleLogoutClick = () => {
+    setConfirmModal({
+      isOpen: true,
+      type: 'logout',
+      data: null,
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    setConfirmLoading(true);
 
     try {
-      await deleteSummary(id);
-      loadHistory();
-      loadStats();
+      if (confirmModal.type === 'delete') {
+        await deleteSummary(confirmModal.data);
+        await loadHistory();
+        await loadStats();
+        
+        // Si el resumen eliminado es el que está abierto en el modal, cerrarlo
+        if (currentSummary && currentSummary.id === confirmModal.data) {
+          setShowModal(false);
+          setCurrentSummary(null);
+        }
+      } else if (confirmModal.type === 'logout') {
+        logout();
+      }
     } catch (err) {
-      alert('Error al eliminar resumen');
+      setError('Error al realizar la acción. Por favor, inténtalo de nuevo.');
+      console.error('Error:', err);
+    } finally {
+      setConfirmLoading(false);
+      setConfirmModal({ isOpen: false, type: null, data: null });
     }
+  };
+
+  const handleCancelConfirm = () => {
+    setConfirmModal({ isOpen: false, type: null, data: null });
+  };
+
+  // Función para cambiar de tab con animación
+  const handleTabChange = (newTab) => {
+    if (newTab === activeTab) return;
+    
+    setIsTransitioning(true);
+    
+    // Limpiar errores de validación al cambiar de tab
+    setVideoURLError('');
+    setAudioURLError('');
+    
+    setTimeout(() => {
+      setActiveTab(newTab);
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 50);
+    }, 200);
   };
 
   const handleAudioDownload = async (e) => {
     e.preventDefault();
     setAudioError('');
     setAudioSuccess('');
-    setAudioLoading(true);
+    setAudioURLError('');
 
-    if (!audioURL) {
-      setAudioError('Ingresa una URL de YouTube');
-      setAudioLoading(false);
+    // Validación de URL
+    if (!audioURL || audioURL.trim() === '') {
+      setAudioURLError('Debes introducir una URL de YouTube');
       return;
     }
+
+    if (!isValidYouTubeURL(audioURL)) {
+      setAudioURLError('Debes introducir una URL de YouTube válida');
+      return;
+    }
+
+    setAudioLoading(true);
 
     try {
       const blob = await downloadAudio(audioURL);
@@ -212,6 +301,7 @@ export default function MainPage() {
         width: 550,
         maxHeight: '85vh',
         overflowY: 'auto',
+        animation: 'fadeIn 0.5s ease-in',
       }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -223,7 +313,7 @@ export default function MainPage() {
               {user?.userType} • {stats?.remainingRequests !== undefined ? `${stats.remainingRequests} restantes` : 'Cargando...'}
             </p>
           </div>
-          <button onClick={logout} style={{
+          <button onClick={handleLogoutClick} style={{
             padding: '8px 16px',
             borderRadius: '8px',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -231,12 +321,16 @@ export default function MainPage() {
             color: 'white',
             cursor: 'pointer',
             fontSize: '0.9rem',
-          }}>Salir</button>
+            transition: 'all 0.3s ease',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)', e.currentTarget.style.transform = 'translateY(-2px)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)', e.currentTarget.style.transform = 'translateY(0)')}
+          >Salir</button>
         </div>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '5px', marginBottom: '25px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <button onClick={() => setActiveTab('generate')} style={{
+          <button onClick={() => handleTabChange('generate')} style={{
             padding: '12px 18px',
             border: 'none',
             background: 'transparent',
@@ -245,9 +339,23 @@ export default function MainPage() {
             fontSize: '0.95rem',
             fontWeight: activeTab === 'generate' ? 'bold' : 'normal',
             borderBottom: activeTab === 'generate' ? '3px solid #5227FF' : 'none',
+            transition: 'all 0.3s ease',
+            transform: activeTab === 'generate' ? 'translateY(-2px)' : 'translateY(0)',
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'generate') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'generate') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }
           }}>Transcribir</button>
 
-          <button onClick={() => setActiveTab('history')} style={{
+          <button onClick={() => handleTabChange('history')} style={{
             padding: '12px 18px',
             border: 'none',
             background: 'transparent',
@@ -256,9 +364,23 @@ export default function MainPage() {
             fontSize: '0.95rem',
             fontWeight: activeTab === 'history' ? 'bold' : 'normal',
             borderBottom: activeTab === 'history' ? '3px solid #5227FF' : 'none',
+            transition: 'all 0.3s ease',
+            transform: activeTab === 'history' ? 'translateY(-2px)' : 'translateY(0)',
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'history') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'history') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }
           }}>Historial ({stats?.totalSummaries ?? 0})</button>
 
-          <button onClick={() => setActiveTab('audio')} style={{
+          <button onClick={() => handleTabChange('audio')} style={{
             padding: '12px 18px',
             border: 'none',
             background: 'transparent',
@@ -267,12 +389,29 @@ export default function MainPage() {
             fontSize: '0.95rem',
             fontWeight: activeTab === 'audio' ? 'bold' : 'normal',
             borderBottom: activeTab === 'audio' ? '3px solid #5227FF' : 'none',
+            transition: 'all 0.3s ease',
+            transform: activeTab === 'audio' ? 'translateY(-2px)' : 'translateY(0)',
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'audio') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
+              e.currentTarget.style.transform = 'translateY(-2px)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'audio') {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }
           }}>Audio</button>
         </div>
 
         {/* Tab: Generar Resumen */}
         {activeTab === 'generate' && (
-          <div>
+          <div style={{
+            animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
+            opacity: isTransitioning ? 0 : 1,
+          }}>
             <p style={{ marginBottom: '20px', color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>
               Pega un enlace de YouTube para obtener un resumen rapido
             </p>
@@ -286,6 +425,7 @@ export default function MainPage() {
                 color: '#f87171',
                 fontSize: '0.9rem',
                 marginBottom: '15px',
+                animation: 'fadeIn 0.3s ease-in',
               }}>{error}</div>
             )}
 
@@ -317,10 +457,46 @@ export default function MainPage() {
             )}
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <input type="url" placeholder="https://www.youtube.com/watch?v=..." value={videoURL}
-                onChange={(e) => setVideoURL(e.target.value)} disabled={loading}
-                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)',
-                  background: 'rgba(255, 255, 255, 0.1)', color: 'white', fontSize: '1rem', boxSizing: 'border-box' }} />
+              <div>
+                <input 
+                  type="text"
+                  placeholder="https://www.youtube.com/watch?v=..." 
+                  value={videoURL}
+                  onChange={(e) => {
+                    setVideoURL(e.target.value);
+                    if (videoURLError) setVideoURLError('');
+                  }} 
+                  disabled={loading}
+                  onFocus={(e) => {
+                    if (!videoURLError) e.currentTarget.style.borderColor = '#5227FF';
+                  }}
+                  onBlur={(e) => {
+                    if (!videoURLError) e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }}
+                  style={{ 
+                    width: '100%', 
+                    padding: '12px', 
+                    borderRadius: '8px', 
+                    border: videoURLError ? '2px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.2)',
+                    background: videoURLError ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255, 255, 255, 0.1)', 
+                    color: 'white', 
+                    fontSize: '1rem', 
+                    boxSizing: 'border-box', 
+                    transition: 'all 0.3s ease',
+                    animation: videoURLError ? 'shake 0.5s' : 'none',
+                  }} 
+                />
+                {videoURLError && (
+                  <p style={{ 
+                    color: '#f87171', 
+                    fontSize: '0.85rem', 
+                    margin: '8px 0 0 0',
+                    animation: 'fadeIn 0.3s ease-in',
+                  }}>
+                    {videoURLError}
+                  </p>
+                )}
+              </div>
 
               <Select options={LANGUAGES} value={language} onChange={setLanguage} isSearchable isDisabled={loading}
                 placeholder="Selecciona un idioma" menuPlacement="auto" styles={{
@@ -334,8 +510,11 @@ export default function MainPage() {
                 }} />
 
               <select value={summaryLength} onChange={(e) => setSummaryLength(e.target.value)} disabled={loading}
+                onFocus={(e) => e.currentTarget.style.borderColor = '#5227FF'}
+                onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'}
                 style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)',
-                  background: 'rgba(255, 255, 255, 0.1)', color: 'white', fontSize: '1rem', boxSizing: 'border-box' }}>
+                  background: 'rgba(255, 255, 255, 0.1)', color: 'white', fontSize: '1rem', boxSizing: 'border-box',
+                  transition: 'all 0.3s ease', cursor: 'pointer' }}>
                 <option style={{ background: '#111928' }} value="100-200">100-200 palabras</option>
                 <option style={{ background: '#111928' }} value="200-400">200-400 palabras</option>
                 <option style={{ background: '#111928' }} value="400-600">400-600 palabras</option>
@@ -345,22 +524,47 @@ export default function MainPage() {
                 width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
                 background: loading ? '#6b7280' : '#5227FF', color: '#fff',
                 cursor: loading ? 'not-allowed' : 'pointer', fontSize: '1.1rem', fontWeight: 'bold',
-              }}>{loading ? 'Procesando...' : 'Generar Resumen'}</button>
+                transition: 'all 0.3s ease',
+                transform: 'scale(1)',
+              }}
+              onMouseEnter={(e) => !loading && (e.currentTarget.style.transform = 'scale(1.02)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(82, 39, 255, 0.4)')}
+              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)', e.currentTarget.style.boxShadow = 'none')}
+              >{loading ? 'Procesando...' : 'Generar Resumen'}</button>
             </form>
           </div>
         )}
 
         {/* Tab: Historial */}
         {activeTab === 'history' && (
-          <div>
+          <div style={{
+            animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
+            opacity: isTransitioning ? 0 : 1,
+          }}>
             {loadingHistory ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>Cargando...</p>
             ) : summaries.length === 0 ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>
                 Aun no has generado ningun resumen</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {summaries.map((s) => (
-                  <div key={s.id} style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px', padding: '15px' }}>
+                {summaries.map((s, index) => (
+                  <div key={s.id} style={{ 
+                    background: 'rgba(255, 255, 255, 0.05)', 
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '8px', 
+                    padding: '15px',
+                    animation: `fadeIn 0.3s ease-in ${index * 0.05}s backwards`,
+                    transition: 'all 0.3s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                  >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
                       <div style={{ flex: 1 }}>
                         <h4 style={{ color: 'white', margin: '0 0 5px 0', fontSize: '1rem' }}>{s.videoTitle || 'Video de YouTube'}</h4>
@@ -370,15 +574,23 @@ export default function MainPage() {
                       </div>
                       <button onClick={() => handleDeleteSummary(s.id)} style={{
                         background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)',
-                        color: '#f87171', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem'
-                      }}>🗑️</button>
+                        color: '#f87171', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                        transition: 'all 0.3s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)', e.currentTarget.style.transform = 'translateY(-2px)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)', e.currentTarget.style.transform = 'translateY(0)')}
+                      >Eliminar</button>
                     </div>
                     <p style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.95rem', margin: '10px 0', lineHeight: '1.5',
                       display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{s.summaryText}</p>
                     <button onClick={() => { setCurrentSummary(s); setShowModal(true); }} style={{
                       background: 'transparent', border: '1px solid rgba(82, 39, 255, 0.5)', color: '#5227FF',
-                      padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold'
-                    }}>Ver completo</button>
+                      padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold',
+                      transition: 'all 0.3s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(82, 39, 255, 0.1)', e.currentTarget.style.transform = 'translateY(-2px)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent', e.currentTarget.style.transform = 'translateY(0)')}
+                    >Ver completo</button>
                   </div>
                 ))}
               </div>
@@ -388,7 +600,10 @@ export default function MainPage() {
 
         {/* Tab: Descargar Audio */}
         {activeTab === 'audio' && (
-          <div>
+          <div style={{
+            animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
+            opacity: isTransitioning ? 0 : 1,
+          }}>
             <p style={{ marginBottom: '20px', color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>
               Descarga el audio de cualquier video de YouTube en formato MP3
             </p>
@@ -402,6 +617,7 @@ export default function MainPage() {
                 color: '#f87171',
                 fontSize: '0.9rem',
                 marginBottom: '15px',
+                animation: 'fadeIn 0.3s ease-in',
               }}>{audioError}</div>
             )}
 
@@ -414,6 +630,7 @@ export default function MainPage() {
                 color: '#4ade80',
                 fontSize: '0.9rem',
                 marginBottom: '15px',
+                animation: 'fadeIn 0.3s ease-in',
               }}>{audioSuccess}</div>
             )}
 
@@ -445,41 +662,76 @@ export default function MainPage() {
             )}
 
             <form onSubmit={handleAudioDownload} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <input
-                type="url"
-                placeholder="https://www.youtube.com/watch?v=..."
-                value={audioURL}
-                onChange={(e) => setAudioURL(e.target.value)}
-                disabled={audioLoading}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                  fontSize: '1rem',
-                  boxSizing: 'border-box',
-                }}
-              />
+              <div>
+                <input
+                  type="text"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={audioURL}
+                  onChange={(e) => {
+                    setAudioURL(e.target.value);
+                    if (audioURLError) setAudioURLError('');
+                  }}
+                  disabled={audioLoading}
+                  onFocus={(e) => {
+                    if (!audioURLError) e.currentTarget.style.borderColor = '#5227FF';
+                  }}
+                  onBlur={(e) => {
+                    if (!audioURLError) e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: audioURLError ? '2px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.2)',
+                    background: audioURLError ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255, 255, 255, 0.1)',
+                    color: 'white',
+                    fontSize: '1rem',
+                    boxSizing: 'border-box',
+                    transition: 'all 0.3s ease',
+                    animation: audioURLError ? 'shake 0.5s' : 'none',
+                  }}
+                />
+                {audioURLError && (
+                  <p style={{ 
+                    color: '#f87171', 
+                    fontSize: '0.85rem', 
+                    margin: '8px 0 0 0',
+                    animation: 'fadeIn 0.3s ease-in',
+                  }}>
+                    {audioURLError}
+                  </p>
+                )}
+              </div>
+<button
+  type="submit"
+  style={{
+    width: '100%',
+    padding: '12px',
+    borderRadius: '8px',
+    border: 'none',
+    background: audioLoading || !audioURL ? '#6b7280' : '#5227FF',
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '1.1rem',
+    fontWeight: 'bold',
+    transition: 'all 0.3s ease',
+    transform: 'scale(1)',
+  }}
+  onMouseEnter={(e) =>
+    !audioLoading &&
+    audioURL &&
+    (e.currentTarget.style.transform = 'scale(1.02)',
+     e.currentTarget.style.boxShadow = '0 4px 12px rgba(82, 39, 255, 0.4)')
+  }
+  onMouseLeave={(e) => {
+    e.currentTarget.style.transform = 'scale(1)';
+    e.currentTarget.style.boxShadow = 'none';
+  }}
+>
+  {audioLoading ? 'Descargando...' : 'Descargar Audio MP3'}
+</button>
 
-              <button
-                type="submit"
-                disabled={audioLoading || !audioURL}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  background: audioLoading || !audioURL ? '#6b7280' : '#5227FF',
-                  color: '#fff',
-                  cursor: audioLoading || !audioURL ? 'not-allowed' : 'pointer',
-                  fontSize: '1.1rem',
-                  fontWeight: 'bold',
-                }}
-              >
-                {audioLoading ? 'Descargando...' : 'Descargar Audio MP3'}
-              </button>
+
             </form>
 
             <div style={{
@@ -501,10 +753,68 @@ export default function MainPage() {
           @keyframes spin {
             to { transform: rotate(360deg); }
           }
+          
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateY(10px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          
+          @keyframes fadeOut {
+            from {
+              opacity: 1;
+              transform: translateY(0);
+            }
+            to {
+              opacity: 0;
+              transform: translateY(-10px);
+            }
+          }
+          
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          }
+          
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+          }
         `}</style>
       </div>
 
       {showModal && <SummaryModal summary={currentSummary} remainingRequests={remainingRequests} onClose={() => setShowModal(false)} />}
+      
+      {/* Modal de confirmación */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={handleCancelConfirm}
+        onConfirm={handleConfirmAction}
+        title={
+          confirmModal.type === 'delete' 
+            ? '¿Eliminar resumen?' 
+            : '¿Cerrar sesión?'
+        }
+        message={
+          confirmModal.type === 'delete'
+            ? 'Esta acción no se puede deshacer. El resumen será eliminado permanentemente.'
+            : '¿Estás seguro de que quieres cerrar sesión?'
+        }
+        confirmText={
+          confirmModal.type === 'delete' 
+            ? 'Eliminar' 
+            : 'Cerrar sesión'
+        }
+        cancelText="Cancelar"
+        confirmColor={confirmModal.type === 'delete' ? '#ef4444' : '#5227FF'}
+        isLoading={confirmLoading}
+      />
     </div>
   );
 }
