@@ -145,6 +145,61 @@ export const getUserStats = async () => {
 };
 
 // ==========================================
+// AUDIO DOWNLOAD ENDPOINTS
+// ==========================================
+
+/**
+ * Descarga audio de un video de YouTube
+ * NOTA: Retorna un archivo binario (Blob)
+ * @param {string} videoUrl - URL del video
+ * @returns {Promise<Blob>} - Archivo MP3
+ */
+export const downloadAudio = async (videoUrl) => {
+  const response = await api.post('/audio/download', 
+    { videoUrl },
+    { responseType: 'blob' } // IMPORTANTE: para recibir archivo binario
+  );
+  return response.data;
+};
+
+/**
+ * Obtiene el historial de descargas
+ * @returns {Promise} - Array de descargas
+ */
+export const getAudioDownloadHistory = async () => {
+  const response = await api.get('/audio/history');
+  return response.data;
+};
+
+/**
+ * Obtiene las ultimas 10 descargas
+ * @returns {Promise} - Array de descargas recientes
+ */
+export const getRecentAudioDownloads = async () => {
+  const response = await api.get('/audio/recent');
+  return response.data;
+};
+
+/**
+ * Obtiene estadisticas de descargas
+ * @returns {Promise} - { totalDownloads, todayDownloads }
+ */
+export const getAudioDownloadStats = async () => {
+  const response = await api.get('/audio/stats');
+  return response.data;
+};
+
+/**
+ * Elimina un registro de descarga
+ * @param {number} id - ID del registro
+ * @returns {Promise} - { message }
+ */
+export const deleteAudioDownload = async (id) => {
+  const response = await api.delete(`/audio/${id}`);
+  return response.data;
+};
+
+// ==========================================
 // USER ENDPOINTS
 // ==========================================
 
