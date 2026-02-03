@@ -110,6 +110,7 @@ public class SecurityConfig {
                         // Endpoints públicos (sin autenticación)
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/test/**").permitAll()
+                        .requestMatchers("/api/audio/**").authenticated()
                         .requestMatchers("/error").permitAll()
 
                         // Todos los demás endpoints requieren autenticación
