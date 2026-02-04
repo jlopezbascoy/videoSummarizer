@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { AuthProvider } from './context/AuthContext';
-import Antigravity from './components/AnimatedBackground';
 import Login from './components/Login';
 import Register from './components/Register';
 import MainPage from './components/MainPage';
@@ -28,24 +27,7 @@ function AppContent() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-      {/* Fondo animado siempre activo */}
-      <Antigravity
-        count={300}
-        magnetRadius={6}
-        ringRadius={7}
-        waveSpeed={0.4}
-        waveAmplitude={1}
-        particleSize={1.5}
-        lerpSpeed={0.05}
-        color="#5227FF"
-        autoAnimate
-        particleVariance={1}
-        rotationSpeed={0}
-        depthFactor={1}
-        pulseSpeed={3}
-        particleShape="capsule"
-        fieldStrength={10}
-      />
+   
 
       {/* Login / Registro */}
       {!isAuthenticated && !isRegistering && (
