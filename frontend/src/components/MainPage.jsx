@@ -29,6 +29,23 @@ const LANGUAGES = [
   { value: 'pl', label: 'Polaco' },
 ];
 
+// Design System Colors - Hacker Theme
+const colors = {
+  bgPrimary: '#0A0F0A',
+  bgSecondary: '#111811',
+  border: '#1E2D1E',
+  primary: '#00FF41',
+  primaryHover: '#00CC33',
+  primaryGlow: 'rgba(0, 255, 65, 0.4)',
+  success: '#00FF41',
+  error: '#FF3333',
+  warning: '#FFB800',
+  info: '#00D4FF',
+  textPrimary: '#E0FFE0',
+  textSecondary: '#7FBF7F',
+  textDisabled: '#3D5C3D',
+};
+
 export default function MainPage() {
   const { logout, user } = useAuth();
   const [activeTab, setActiveTab] = useState('generate');
@@ -63,13 +80,18 @@ export default function MainPage() {
   // Estados para modales de confirmación
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
-    type: null, // 'delete' o 'logout'
-    data: null, // ID del resumen a eliminar
+    type: null,
+    data: null,
   });
   const [confirmLoading, setConfirmLoading] = useState(false);
 
+  // SOLUCION BUG: Cargar stats e historial al iniciar
   useEffect(() => {
-    loadStats();
+    const initializeData = async () => {
+      await loadStats();
+      await loadHistory();
+    };
+    initializeData();
   }, []);
 
   useEffect(() => {
@@ -78,29 +100,90 @@ export default function MainPage() {
     }
   }, [activeTab]);
 
+  // FUNCION HELPER: Detectar y parsear errores del backend
+  const parseErrorMessage = (errorMessage) => {
+    const message = errorMessage.toLowerCase();
+    
+    if (message.includes('age') || 
+        message.includes('sign in') || 
+        message.includes('inappropriate') ||
+        message.includes('verificacion de edad') ||
+        message.includes('verificación')) {
+      return '⚠️ Este video requiere verificación de edad y no se puede procesar. Por favor, elige un video público sin restricciones.';
+    }
+    
+    if (message.includes('private') || message.includes('privado')) {
+      return '🔒 Este video es privado y no se puede acceder. Elige un video público.';
+    }
+    
+    if (message.includes('unavailable') || 
+        message.includes('not available') ||
+        message.includes('no esta disponible') ||
+        message.includes('no está disponible') ||
+        message.includes('eliminado')) {
+      return '❌ Este video no está disponible o ha sido eliminado.';
+    }
+    
+    if (message.includes('region') || 
+        message.includes('country') ||
+        message.includes('geo')) {
+      return '🌍 Este video no está disponible en tu región.';
+    }
+    
+    if (message.includes('timeout') || 
+        message.includes('too long') ||
+        message.includes('demasiado largo')) {
+      return '⏱️ El video es demasiado largo. Intenta con un video más corto.';
+    }
+    
+    if (errorMessage.startsWith('⚠️') || 
+        errorMessage.startsWith('🔒') || 
+        errorMessage.startsWith('❌') ||
+        errorMessage.startsWith('🌍') ||
+        errorMessage.startsWith('⏱️')) {
+      return errorMessage;
+    }
+    
+    return errorMessage;
+  };
+
   const loadStats = async () => {
     try {
+      console.log('📊 Cargando stats...');
       const data = await getUserStats();
+      console.log('✅ Stats recibidos:', data);
+      
       setStats(data);
       setRemainingRequests(data.remainingRequests);
     } catch (err) {
-      console.error('Error cargando stats:', err);
+      console.error('❌ Error cargando stats:', err);
+      if (user) {
+        setStats({
+          remainingRequests: user.dailyLimit || 5,
+          totalSummaries: 0,
+          dailyLimit: user.dailyLimit || 5
+        });
+        setRemainingRequests(user.dailyLimit || 5);
+      }
     }
   };
 
   const loadHistory = async () => {
     setLoadingHistory(true);
     try {
+      console.log('📚 Cargando historial...');
       const data = await getSummaryHistory();
+      console.log('✅ Historial recibido:', data, 'Total:', data.length);
+      
       setSummaries(data);
     } catch (err) {
-      console.error('Error cargando historial:', err);
+      console.error('❌ Error cargando historial:', err);
+      setSummaries([]);
     } finally {
       setLoadingHistory(false);
     }
   };
 
-  // Función para validar URL de YouTube
   const isValidYouTubeURL = (url) => {
     if (!url || url.trim() === '') return false;
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/;
@@ -112,7 +195,6 @@ export default function MainPage() {
     setError('');
     setVideoURLError('');
 
-    // Validación de URL
     if (!videoURL || videoURL.trim() === '') {
       setVideoURLError('Debes introducir una URL de YouTube');
       return;
@@ -126,14 +208,16 @@ export default function MainPage() {
     setLoading(true);
     setLoadingStep('Iniciando...');
 
+    let timer1, timer2;
+
     try {
       setLoadingStep('Descargando audio del video...');
       
-      const timer1 = setTimeout(() => {
+      timer1 = setTimeout(() => {
         setLoadingStep('Transcribiendo audio a texto...');
       }, 10000);
 
-      const timer2 = setTimeout(() => {
+      timer2 = setTimeout(() => {
         setLoadingStep('Generando resumen con IA...');
       }, 40000);
 
@@ -151,9 +235,15 @@ export default function MainPage() {
       setShowModal(true);
       setVideoURL('');
       await loadStats();
+      await loadHistory();
     } catch (err) {
-      const errorMessage = err.response?.data?.error || err.message || 'Error al generar resumen';
-      setError(errorMessage);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      
+      const rawError = err.response?.data?.error || err.message || 'Error al generar resumen';
+      const friendlyError = parseErrorMessage(rawError);
+      setError(friendlyError);
+      
       console.error('Error completo:', err);
     } finally {
       setLoading(false);
@@ -186,7 +276,6 @@ export default function MainPage() {
         await loadHistory();
         await loadStats();
         
-        // Si el resumen eliminado es el que está abierto en el modal, cerrarlo
         if (currentSummary && currentSummary.id === confirmModal.data) {
           setShowModal(false);
           setCurrentSummary(null);
@@ -207,13 +296,10 @@ export default function MainPage() {
     setConfirmModal({ isOpen: false, type: null, data: null });
   };
 
-  // Función para cambiar de tab con animación
   const handleTabChange = (newTab) => {
     if (newTab === activeTab) return;
     
     setIsTransitioning(true);
-    
-    // Limpiar errores de validación al cambiar de tab
     setVideoURLError('');
     setAudioURLError('');
     
@@ -231,7 +317,6 @@ export default function MainPage() {
     setAudioSuccess('');
     setAudioURLError('');
 
-    // Validación de URL
     if (!audioURL || audioURL.trim() === '') {
       setAudioURLError('Debes introducir una URL de YouTube');
       return;
@@ -257,13 +342,16 @@ export default function MainPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      setAudioSuccess('Audio descargado correctamente');
+      setAudioSuccess('✅ Audio descargado correctamente');
       setAudioURL('');
       await loadStats();
 
     } catch (err) {
-      const errorMessage = err.response?.data?.error || err.message || 'Error al descargar audio';
-      setAudioError(errorMessage);
+      const rawError = err.response?.data?.error || err.message || 'Error al descargar audio';
+      const friendlyError = parseErrorMessage(rawError);
+      setAudioError(friendlyError);
+      
+      console.error('Error descarga audio:', err);
     } finally {
       setAudioLoading(false);
     }
@@ -278,6 +366,77 @@ export default function MainPage() {
     return 'audio';
   };
 
+  // Estilos reutilizables
+  const inputStyle = {
+    width: '100%',
+    padding: '14px 16px',
+    borderRadius: '8px',
+    border: `1px solid ${colors.border}`,
+    background: colors.bgSecondary,
+    color: colors.textPrimary,
+    fontSize: '0.95rem',
+    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+    boxSizing: 'border-box',
+    transition: 'all 200ms ease',
+    outline: 'none',
+  };
+
+  const inputErrorStyle = {
+    ...inputStyle,
+    border: `2px solid ${colors.error}`,
+    background: `${colors.error}10`,
+  };
+
+  const buttonPrimaryStyle = {
+    width: '100%',
+    padding: '14px 24px',
+    borderRadius: '8px',
+    border: `1px solid ${colors.primary}`,
+    background: 'transparent',
+    color: colors.primary,
+    cursor: 'pointer',
+    fontSize: '1rem',
+    fontWeight: '600',
+    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+    transition: 'all 200ms ease',
+    boxShadow: `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)`,
+    textTransform: 'uppercase',
+    letterSpacing: '2px',
+  };
+
+  const buttonDisabledStyle = {
+    ...buttonPrimaryStyle,
+    border: `1px solid ${colors.textDisabled}`,
+    color: colors.textDisabled,
+    cursor: 'not-allowed',
+    boxShadow: 'none',
+  };
+
+  const cardStyle = {
+    background: colors.bgSecondary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '8px',
+    padding: '20px',
+    transition: 'all 200ms ease',
+  };
+
+  const tabButtonStyle = (isActive) => ({
+    padding: '14px 20px',
+    border: 'none',
+    background: 'transparent',
+    color: isActive ? colors.primary : colors.textSecondary,
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    fontWeight: isActive ? '600' : '500',
+    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+    borderBottom: isActive ? `2px solid ${colors.primary}` : '2px solid transparent',
+    transition: 'all 200ms ease',
+    marginBottom: '-1px',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+    textShadow: isActive ? `0 0 10px ${colors.primaryGlow}` : 'none',
+  });
+
   return (
     <div style={{
       position: 'absolute',
@@ -289,121 +448,142 @@ export default function MainPage() {
       justifyContent: 'center',
       alignItems: 'center',
       pointerEvents: 'none',
+      fontFamily: '"Share Tech Mono", "Fira Code", monospace',
     }}>
+      {/* Importar fuente */}
+      <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+      
       <div style={{
         pointerEvents: 'auto',
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
-        backgroundColor: 'rgba(17, 25, 40, 0.75)',
+        background: colors.bgPrimary,
         borderRadius: '12px',
-        border: '1px solid rgba(255, 255, 255, 0.125)',
-        padding: '40px',
-        width: 550,
+        border: `1px solid ${colors.primary}30`,
+        padding: '32px 40px',
+        width: 540,
         maxHeight: '85vh',
         overflowY: 'auto',
-        animation: 'fadeIn 0.5s ease-in',
+        boxShadow: `0 0 40px rgba(0, 255, 65, 0.15), 0 0 80px rgba(0, 255, 65, 0.05)`,
       }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div>
-            <h2 style={{ fontSize: '1.8rem', margin: 0, fontWeight: '600', color: 'white' }}>
-              Hola, {user?.username}
+            <h2 style={{ 
+              fontSize: '1.5rem', 
+              margin: 0, 
+              fontWeight: '600', 
+              color: colors.primary,
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              textShadow: `0 0 20px ${colors.primaryGlow}`,
+            }}>
+              {`> ${user?.username}`}
             </h2>
-            <p style={{ margin: '5px 0 0 0', color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.85rem' }}>
-              {user?.userType} • {stats?.remainingRequests !== undefined ? `${stats.remainingRequests} restantes` : 'Cargando...'}
+            <p style={{ 
+              margin: '8px 0 0 0', 
+              color: colors.textSecondary, 
+              fontSize: '0.85rem',
+              fontWeight: '500',
+              letterSpacing: '1px',
+            }}>
+              [{user?.userType}] :: {
+                stats?.remainingRequests !== undefined 
+                  ? `${stats.remainingRequests} requests remaining` 
+                  : (user?.dailyLimit ? `${user.dailyLimit} remaining` : 'loading...')
+              }
             </p>
           </div>
-          <button onClick={handleLogoutClick} style={{
-            padding: '8px 16px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            background: 'rgba(255, 255, 255, 0.1)',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)', e.currentTarget.style.transform = 'translateY(-2px)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)', e.currentTarget.style.transform = 'translateY(0)')}
-          >Salir</button>
+          <button 
+            onClick={handleLogoutClick} 
+            style={{
+              padding: '10px 18px',
+              borderRadius: '6px',
+              border: `1px solid ${colors.error}50`,
+              background: 'transparent',
+              color: colors.error,
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: '500',
+              fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+              transition: 'all 200ms ease',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = `${colors.error}20`;
+              e.currentTarget.style.boxShadow = `0 0 15px ${colors.error}40`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            [EXIT]
+          </button>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '5px', marginBottom: '25px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <button onClick={() => handleTabChange('generate')} style={{
-            padding: '12px 18px',
-            border: 'none',
-            background: 'transparent',
-            color: activeTab === 'generate' ? 'white' : 'rgba(255, 255, 255, 0.5)',
-            cursor: 'pointer',
-            fontSize: '0.95rem',
-            fontWeight: activeTab === 'generate' ? 'bold' : 'normal',
-            borderBottom: activeTab === 'generate' ? '3px solid #5227FF' : 'none',
-            transition: 'all 0.3s ease',
-            transform: activeTab === 'generate' ? 'translateY(-2px)' : 'translateY(0)',
-          }}
-          onMouseEnter={(e) => {
-            if (activeTab !== 'generate') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (activeTab !== 'generate') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }
-          }}>Transcribir</button>
+        <div style={{ 
+          display: 'flex', 
+          gap: '8px', 
+          marginBottom: '28px', 
+          borderBottom: `1px solid ${colors.border}`,
+        }}>
+          <button 
+            onClick={() => handleTabChange('generate')} 
+            style={tabButtonStyle(activeTab === 'generate')}
+            onMouseEnter={(e) => {
+              if (activeTab !== 'generate') {
+                e.currentTarget.style.color = colors.primary;
+                e.currentTarget.style.textShadow = `0 0 10px ${colors.primaryGlow}`;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== 'generate') {
+                e.currentTarget.style.color = colors.textSecondary;
+                e.currentTarget.style.textShadow = 'none';
+              }
+            }}
+          >
+            [Resumen]
+          </button>
 
-          <button onClick={() => handleTabChange('history')} style={{
-            padding: '12px 18px',
-            border: 'none',
-            background: 'transparent',
-            color: activeTab === 'history' ? 'white' : 'rgba(255, 255, 255, 0.5)',
-            cursor: 'pointer',
-            fontSize: '0.95rem',
-            fontWeight: activeTab === 'history' ? 'bold' : 'normal',
-            borderBottom: activeTab === 'history' ? '3px solid #5227FF' : 'none',
-            transition: 'all 0.3s ease',
-            transform: activeTab === 'history' ? 'translateY(-2px)' : 'translateY(0)',
-          }}
-          onMouseEnter={(e) => {
-            if (activeTab !== 'history') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (activeTab !== 'history') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }
-          }}>Historial ({stats?.totalSummaries ?? 0})</button>
+          <button 
+            onClick={() => handleTabChange('history')} 
+            style={tabButtonStyle(activeTab === 'history')}
+            onMouseEnter={(e) => {
+              if (activeTab !== 'history') {
+                e.currentTarget.style.color = colors.primary;
+                e.currentTarget.style.textShadow = `0 0 10px ${colors.primaryGlow}`;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== 'history') {
+                e.currentTarget.style.color = colors.textSecondary;
+                e.currentTarget.style.textShadow = 'none';
+              }
+            }}
+          >
+            [Historial] ({summaries.length})
+          </button>
 
-          <button onClick={() => handleTabChange('audio')} style={{
-            padding: '12px 18px',
-            border: 'none',
-            background: 'transparent',
-            color: activeTab === 'audio' ? 'white' : 'rgba(255, 255, 255, 0.5)',
-            cursor: 'pointer',
-            fontSize: '0.95rem',
-            fontWeight: activeTab === 'audio' ? 'bold' : 'normal',
-            borderBottom: activeTab === 'audio' ? '3px solid #5227FF' : 'none',
-            transition: 'all 0.3s ease',
-            transform: activeTab === 'audio' ? 'translateY(-2px)' : 'translateY(0)',
-          }}
-          onMouseEnter={(e) => {
-            if (activeTab !== 'audio') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (activeTab !== 'audio') {
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }
-          }}>Audio</button>
+          <button 
+            onClick={() => handleTabChange('audio')} 
+            style={tabButtonStyle(activeTab === 'audio')}
+            onMouseEnter={(e) => {
+              if (activeTab !== 'audio') {
+                e.currentTarget.style.color = colors.primary;
+                e.currentTarget.style.textShadow = `0 0 10px ${colors.primaryGlow}`;
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== 'audio') {
+                e.currentTarget.style.color = colors.textSecondary;
+                e.currentTarget.style.textShadow = 'none';
+              }
+            }}
+          >
+            [Audio]
+          </button>
         </div>
 
         {/* Tab: Generar Resumen */}
@@ -412,46 +592,66 @@ export default function MainPage() {
             animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
             opacity: isTransitioning ? 0 : 1,
           }}>
-            <p style={{ marginBottom: '20px', color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>
-              Pega un enlace de YouTube para obtener un resumen rapido
+            <p style={{ 
+              marginBottom: '24px', 
+              color: colors.textSecondary, 
+              textAlign: 'center',
+              fontSize: '0.9rem',
+              lineHeight: '1.6',
+            }}>
+              {'> Pega un enlace de YouTube para obtener un resumen_'}
             </p>
 
             {error && (
               <div style={{
-                padding: '12px',
+                padding: '14px 16px',
                 borderRadius: '8px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.5)',
-                color: '#f87171',
-                fontSize: '0.9rem',
-                marginBottom: '15px',
+                background: `${colors.error}10`,
+                border: `1px solid ${colors.error}50`,
+                color: colors.error,
+                fontSize: '0.85rem',
+                marginBottom: '20px',
                 animation: 'fadeIn 0.3s ease-in',
-              }}>{error}</div>
+                lineHeight: '1.5',
+              }}>
+                {error}
+              </div>
             )}
 
             {loading && loadingStep && (
               <div style={{
-                padding: '15px',
+                padding: '20px',
                 borderRadius: '8px',
-                background: 'rgba(82, 39, 255, 0.1)',
-                border: '1px solid rgba(82, 39, 255, 0.3)',
-                marginBottom: '15px',
+                background: `${colors.primary}08`,
+                border: `1px solid ${colors.primary}30`,
+                marginBottom: '20px',
                 textAlign: 'center',
               }}>
                 <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '3px solid rgba(82, 39, 255, 0.3)',
-                  borderTopColor: '#5227FF',
+                  width: '28px',
+                  height: '28px',
+                  border: `2px solid ${colors.primary}30`,
+                  borderTopColor: colors.primary,
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite',
-                  margin: '0 auto 10px auto',
+                  margin: '0 auto 12px auto',
+                  boxShadow: `0 0 15px ${colors.primaryGlow}`,
                 }}></div>
-                <p style={{ color: 'white', margin: 0, fontSize: '0.95rem', fontWeight: '500' }}>
-                  {loadingStep}
+                <p style={{ 
+                  color: colors.primary, 
+                  margin: 0, 
+                  fontSize: '0.9rem', 
+                  fontWeight: '600',
+                  textShadow: `0 0 10px ${colors.primaryGlow}`,
+                }}>
+                  {`> ${loadingStep}`}
                 </p>
-                <p style={{ color: 'rgba(255, 255, 255, 0.6)', margin: '5px 0 0 0', fontSize: '0.85rem' }}>
-                  Esto puede tardar 2-5 minutos
+                <p style={{ 
+                  color: colors.textSecondary, 
+                  margin: '8px 0 0 0', 
+                  fontSize: '0.8rem',
+                }}>
+                  [Tiempo estimado: 2-5 min]
                 </p>
               </div>
             )}
@@ -459,77 +659,120 @@ export default function MainPage() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
                 <input 
-                  type="text"
-                  placeholder="https://www.youtube.com/watch?v=..." 
+                  type="text" 
+                  placeholder="> https://www.youtube.com/watch?v=..." 
                   value={videoURL}
                   onChange={(e) => {
                     setVideoURL(e.target.value);
                     if (videoURLError) setVideoURLError('');
-                  }} 
+                  }}
                   disabled={loading}
                   onFocus={(e) => {
-                    if (!videoURLError) e.currentTarget.style.borderColor = '#5227FF';
+                    if (!videoURLError) {
+                      e.currentTarget.style.borderColor = colors.primary;
+                      e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
+                    }
                   }}
                   onBlur={(e) => {
-                    if (!videoURLError) e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    if (!videoURLError) {
+                      e.currentTarget.style.borderColor = colors.border;
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
                   }}
-                  style={{ 
-                    width: '100%', 
-                    padding: '12px', 
-                    borderRadius: '8px', 
-                    border: videoURLError ? '2px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.2)',
-                    background: videoURLError ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255, 255, 255, 0.1)', 
-                    color: 'white', 
-                    fontSize: '1rem', 
-                    boxSizing: 'border-box', 
-                    transition: 'all 0.3s ease',
-                    animation: videoURLError ? 'shake 0.5s' : 'none',
-                  }} 
+                  style={videoURLError ? inputErrorStyle : inputStyle}
                 />
                 {videoURLError && (
                   <p style={{ 
-                    color: '#f87171', 
-                    fontSize: '0.85rem', 
-                    margin: '8px 0 0 0',
+                    color: colors.error, 
+                    fontSize: '0.8rem', 
+                    margin: '10px 0 0 0',
+                    fontWeight: '500',
                     animation: 'fadeIn 0.3s ease-in',
                   }}>
-                    {videoURLError}
+                    {`[ERROR] ${videoURLError}`}
                   </p>
                 )}
               </div>
 
-              <Select options={LANGUAGES} value={language} onChange={setLanguage} isSearchable isDisabled={loading}
-                placeholder="Selecciona un idioma" menuPlacement="auto" styles={{
-                  control: (p) => ({ ...p, background: 'rgba(255, 255, 255, 0.1)', border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '8px', padding: '4px', boxShadow: 'none', textAlign: 'left' }),
-                  singleValue: (p) => ({ ...p, color: 'white' }),
-                  menu: (p) => ({ ...p, background: 'rgba(17, 25, 40, 0.95)', borderRadius: '8px', backdropFilter: 'blur(10px)' }),
-                  option: (p, s) => ({ ...p, background: s.isSelected ? '#5227FF' : s.isFocused ? 'rgba(255, 255, 255, 0.2)' : 'transparent', color: 'white' }),
-                  input: (p) => ({ ...p, color: 'white' }),
-                  placeholder: (p) => ({ ...p, color: 'rgba(255, 255, 255, 0.7)' }),
-                }} />
+              <Select 
+                options={LANGUAGES} 
+                value={language} 
+                onChange={setLanguage} 
+                isSearchable 
+                isDisabled={loading}
+                placeholder="> Selecciona idioma" 
+                menuPlacement="auto" 
+                styles={{
+                  control: (p, state) => ({ 
+                    ...p, 
+                    background: colors.bgSecondary, 
+                    border: `1px solid ${state.isFocused ? colors.primary : colors.border}`,
+                    borderRadius: '8px', 
+                    padding: '6px 4px', 
+                    boxShadow: state.isFocused ? `0 0 15px ${colors.primaryGlow}` : 'none', 
+                    textAlign: 'left',
+                    transition: 'all 200ms ease',
+                    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                    '&:hover': {
+                      borderColor: colors.primary,
+                    },
+                  }),
+                  singleValue: (p) => ({ ...p, color: colors.textPrimary, fontFamily: '"Share Tech Mono", "Fira Code", monospace' }),
+                  menu: (p) => ({ 
+                    ...p, 
+                    background: colors.bgSecondary, 
+                    borderRadius: '8px', 
+                    border: `1px solid ${colors.primary}30`,
+                    boxShadow: `0 10px 40px rgba(0,0,0,0.5), 0 0 20px ${colors.primaryGlow}`,
+                    overflow: 'hidden',
+                  }),
+                  menuList: (p) => ({ ...p, padding: '6px' }),
+                  option: (p, s) => ({ 
+                    ...p, 
+                    background: s.isSelected ? `${colors.primary}30` : s.isFocused ? `${colors.primary}15` : 'transparent', 
+                    color: s.isSelected ? colors.primary : colors.textPrimary,
+                    borderRadius: '4px',
+                    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                    cursor: 'pointer',
+                    transition: 'all 150ms ease',
+                  }),
+                  input: (p) => ({ ...p, color: colors.textPrimary }),
+                  placeholder: (p) => ({ ...p, color: colors.textDisabled }),
+                }} 
+              />
 
-              <select value={summaryLength} onChange={(e) => setSummaryLength(e.target.value)} disabled={loading}
-                onFocus={(e) => e.currentTarget.style.borderColor = '#5227FF'}
-                onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'}
-                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.2)',
-                  background: 'rgba(255, 255, 255, 0.1)', color: 'white', fontSize: '1rem', boxSizing: 'border-box',
-                  transition: 'all 0.3s ease', cursor: 'pointer' }}>
-                <option style={{ background: '#111928' }} value="100-200">100-200 palabras</option>
-                <option style={{ background: '#111928' }} value="200-400">200-400 palabras</option>
-                <option style={{ background: '#111928' }} value="400-600">400-600 palabras</option>
+              <select 
+                value={summaryLength} 
+                onChange={(e) => setSummaryLength(e.target.value)} 
+                disabled={loading}
+                style={inputStyle}
+              >
+                <option style={{ background: colors.bgSecondary }} value="100-200">[100-200 palabras]</option>
+                <option style={{ background: colors.bgSecondary }} value="200-400">[200-400 palabras]</option>
+                <option style={{ background: colors.bgSecondary }} value="400-600">[400-600 palabras]</option>
               </select>
 
-              <button type="submit" disabled={loading} style={{
-                width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
-                background: loading ? '#6b7280' : '#5227FF', color: '#fff',
-                cursor: loading ? 'not-allowed' : 'pointer', fontSize: '1.1rem', fontWeight: 'bold',
-                transition: 'all 0.3s ease',
-                transform: 'scale(1)',
-              }}
-              onMouseEnter={(e) => !loading && (e.currentTarget.style.transform = 'scale(1.02)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(82, 39, 255, 0.4)')}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)', e.currentTarget.style.boxShadow = 'none')}
-              >{loading ? 'Procesando...' : 'Generar Resumen'}</button>
+              <button 
+                type="submit" 
+                disabled={loading} 
+                style={loading ? buttonDisabledStyle : buttonPrimaryStyle}
+                onMouseEnter={(e) => {
+                  if (!loading) {
+                    e.currentTarget.style.background = `${colors.primary}20`;
+                    e.currentTarget.style.boxShadow = `0 0 30px ${colors.primaryGlow}, inset 0 0 30px rgba(0, 255, 65, 0.2)`;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.boxShadow = `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)`;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {loading ? '> Procesando...' : '> Generar Resumen'}
+              </button>
             </form>
           </div>
         )}
@@ -540,57 +783,121 @@ export default function MainPage() {
             animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
             opacity: isTransitioning ? 0 : 1,
           }}>
-            {loadingHistory ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>Cargando...</p>
-            ) : summaries.length === 0 ? (<p style={{ color: 'rgba(255, 255, 255, 0.7)', textAlign: 'center' }}>
-                Aun no has generado ningun resumen</p>
+            {loadingHistory ? (
+              <p style={{ color: colors.textSecondary, textAlign: 'center', padding: '40px 0' }}>
+                {'> Cargando datos...'}
+              </p>
+            ) : summaries.length === 0 ? (
+              <p style={{ color: colors.textSecondary, textAlign: 'center', padding: '40px 0' }}>
+                {'> No hay resúmenes en el historial_'}
+              </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {summaries.map((s, index) => (
-                  <div key={s.id} style={{ 
-                    background: 'rgba(255, 255, 255, 0.05)', 
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px', 
-                    padding: '15px',
-                    animation: `fadeIn 0.3s ease-in ${index * 0.05}s backwards`,
-                    transition: 'all 0.3s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {summaries.map((s) => (
+                  <div 
+                    key={s.id} 
+                    style={cardStyle}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = `${colors.primary}50`;
+                      e.currentTarget.style.boxShadow = `0 0 20px ${colors.primaryGlow}`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = colors.border;
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
-                      <div style={{ flex: 1 }}>
-                        <h4 style={{ color: 'white', margin: '0 0 5px 0', fontSize: '1rem' }}>{s.videoTitle || 'Video de YouTube'}</h4>
-                        <p style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.85rem', margin: 0 }}>
-                          {new Date(s.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                      <div style={{ flex: 1, marginRight: '12px' }}>
+                        <h4 style={{ 
+                          color: colors.primary, 
+                          margin: '0 0 6px 0', 
+                          fontSize: '0.95rem',
+                          fontWeight: '600',
+                          lineHeight: '1.3',
+                        }}>
+                          {`> ${s.videoTitle || 'Video de YouTube'}`}
+                        </h4>
+                        <p style={{ 
+                          color: colors.textDisabled, 
+                          fontSize: '0.8rem', 
+                          margin: 0,
+                        }}>
+                          [{new Date(s.createdAt).toLocaleDateString('es-ES', { 
+                            day: 'numeric', 
+                            month: 'short', 
+                            year: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}]
                         </p>
                       </div>
-                      <button onClick={() => handleDeleteSummary(s.id)} style={{
-                        background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)',
-                        color: '#f87171', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                        transition: 'all 0.3s ease',
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)', e.currentTarget.style.transform = 'translateY(-2px)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)', e.currentTarget.style.transform = 'translateY(0)')}
-                      >Eliminar</button>
+                      <button 
+                        onClick={() => handleDeleteSummary(s.id)} 
+                        style={{
+                          background: 'transparent', 
+                          border: `1px solid ${colors.error}50`,
+                          color: colors.error, 
+                          padding: '8px 14px', 
+                          borderRadius: '6px', 
+                          cursor: 'pointer', 
+                          fontSize: '0.8rem',
+                          fontWeight: '500',
+                          fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                          transition: 'all 200ms ease',
+                          flexShrink: 0,
+                          textTransform: 'uppercase',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = `${colors.error}20`;
+                          e.currentTarget.style.boxShadow = `0 0 10px ${colors.error}40`;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
+                        [DEL]
+                      </button>
                     </div>
-                    <p style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.95rem', margin: '10px 0', lineHeight: '1.5',
-                      display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{s.summaryText}</p>
-                    <button onClick={() => { setCurrentSummary(s); setShowModal(true); }} style={{
-                      background: 'transparent', border: '1px solid rgba(82, 39, 255, 0.5)', color: '#5227FF',
-                      padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 'bold',
-                      transition: 'all 0.3s ease',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(82, 39, 255, 0.1)', e.currentTarget.style.transform = 'translateY(-2px)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent', e.currentTarget.style.transform = 'translateY(0)')}
-                    >Ver completo</button>
+                    <p style={{ 
+                      color: colors.textSecondary, 
+                      fontSize: '0.85rem', 
+                      margin: '12px 0', 
+                      lineHeight: '1.6',
+                      display: '-webkit-box', 
+                      WebkitLineClamp: 3, 
+                      WebkitBoxOrient: 'vertical', 
+                      overflow: 'hidden' 
+                    }}>
+                      {s.summaryText}
+                    </p>
+                    <button 
+                      onClick={() => { setCurrentSummary(s); setShowModal(true); }} 
+                      style={{
+                        background: 'transparent', 
+                        border: `1px solid ${colors.primary}50`, 
+                        color: colors.primary,
+                        padding: '10px 18px', 
+                        borderRadius: '6px', 
+                        cursor: 'pointer', 
+                        fontSize: '0.85rem', 
+                        fontWeight: '600',
+                        fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                        transition: 'all 200ms ease',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = `${colors.primary}15`;
+                        e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      [Ver más]
+                    </button>
                   </div>
                 ))}
               </div>
@@ -604,59 +911,82 @@ export default function MainPage() {
             animation: isTransitioning ? 'fadeOut 0.2s ease-out' : 'fadeIn 0.3s ease-in',
             opacity: isTransitioning ? 0 : 1,
           }}>
-            <p style={{ marginBottom: '20px', color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>
-              Descarga el audio de cualquier video de YouTube en formato MP3
+            <p style={{ 
+              marginBottom: '24px', 
+              color: colors.textSecondary, 
+              textAlign: 'center',
+              fontSize: '0.9rem',
+              lineHeight: '1.6',
+            }}>
+              {'> Descarga audio de YouTube en formato MP3_'}
             </p>
 
             {audioError && (
               <div style={{
-                padding: '12px',
+                padding: '14px 16px',
                 borderRadius: '8px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.5)',
-                color: '#f87171',
-                fontSize: '0.9rem',
-                marginBottom: '15px',
+                background: `${colors.error}10`,
+                border: `1px solid ${colors.error}50`,
+                color: colors.error,
+                fontSize: '0.85rem',
+                marginBottom: '20px',
                 animation: 'fadeIn 0.3s ease-in',
-              }}>{audioError}</div>
+                lineHeight: '1.5',
+              }}>
+                {audioError}
+              </div>
             )}
 
             {audioSuccess && (
               <div style={{
-                padding: '12px',
+                padding: '14px 16px',
                 borderRadius: '8px',
-                background: 'rgba(34, 197, 94, 0.1)',
-                border: '1px solid rgba(34, 197, 94, 0.5)',
-                color: '#4ade80',
-                fontSize: '0.9rem',
-                marginBottom: '15px',
+                background: `${colors.success}10`,
+                border: `1px solid ${colors.success}50`,
+                color: colors.success,
+                fontSize: '0.85rem',
+                marginBottom: '20px',
                 animation: 'fadeIn 0.3s ease-in',
-              }}>{audioSuccess}</div>
+                textShadow: `0 0 10px ${colors.primaryGlow}`,
+              }}>
+                {audioSuccess}
+              </div>
             )}
 
             {audioLoading && (
               <div style={{
-                padding: '15px',
+                padding: '20px',
                 borderRadius: '8px',
-                background: 'rgba(82, 39, 255, 0.1)',
-                border: '1px solid rgba(82, 39, 255, 0.3)',
-                marginBottom: '15px',
+                background: `${colors.primary}08`,
+                border: `1px solid ${colors.primary}30`,
+                marginBottom: '20px',
                 textAlign: 'center',
               }}>
                 <div style={{
-                  width: '24px',
-                  height: '24px',
-                  border: '3px solid rgba(82, 39, 255, 0.3)',
-                  borderTopColor: '#5227FF',
+                  width: '28px',
+                  height: '28px',
+                  border: `2px solid ${colors.primary}30`,
+                  borderTopColor: colors.primary,
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite',
-                  margin: '0 auto 10px auto',
+                  margin: '0 auto 12px auto',
+                  boxShadow: `0 0 15px ${colors.primaryGlow}`,
                 }}></div>
-                <p style={{ color: 'white', margin: 0, fontSize: '0.95rem' }}>
-                  Descargando audio...
+                <p style={{ 
+                  color: colors.primary, 
+                  margin: 0, 
+                  fontSize: '0.9rem',
+                  fontWeight: '600',
+                  textShadow: `0 0 10px ${colors.primaryGlow}`,
+                }}>
+                  {'> Descargando audio...'}
                 </p>
-                <p style={{ color: 'rgba(255, 255, 255, 0.6)', margin: '5px 0 0 0', fontSize: '0.85rem' }}>
-                  Esto puede tardar 10-30 segundos
+                <p style={{ 
+                  color: colors.textSecondary, 
+                  margin: '8px 0 0 0', 
+                  fontSize: '0.8rem',
+                }}>
+                  [Tiempo estimado: 10-30 seg]
                 </p>
               </div>
             )}
@@ -665,7 +995,7 @@ export default function MainPage() {
               <div>
                 <input
                   type="text"
-                  placeholder="https://www.youtube.com/watch?v=..."
+                  placeholder="> https://www.youtube.com/watch?v=..."
                   value={audioURL}
                   onChange={(e) => {
                     setAudioURL(e.target.value);
@@ -673,78 +1003,83 @@ export default function MainPage() {
                   }}
                   disabled={audioLoading}
                   onFocus={(e) => {
-                    if (!audioURLError) e.currentTarget.style.borderColor = '#5227FF';
+                    if (!audioURLError) {
+                      e.currentTarget.style.borderColor = colors.primary;
+                      e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
+                    }
                   }}
                   onBlur={(e) => {
-                    if (!audioURLError) e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    if (!audioURLError) {
+                      e.currentTarget.style.borderColor = colors.border;
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
                   }}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border: audioURLError ? '2px solid #ef4444' : '1px solid rgba(255, 255, 255, 0.2)',
-                    background: audioURLError ? 'rgba(239, 68, 68, 0.05)' : 'rgba(255, 255, 255, 0.1)',
-                    color: 'white',
-                    fontSize: '1rem',
-                    boxSizing: 'border-box',
-                    transition: 'all 0.3s ease',
-                    animation: audioURLError ? 'shake 0.5s' : 'none',
-                  }}
+                  style={audioURLError ? inputErrorStyle : inputStyle}
                 />
                 {audioURLError && (
                   <p style={{ 
-                    color: '#f87171', 
-                    fontSize: '0.85rem', 
-                    margin: '8px 0 0 0',
+                    color: colors.error, 
+                    fontSize: '0.8rem', 
+                    margin: '10px 0 0 0',
+                    fontWeight: '500',
                     animation: 'fadeIn 0.3s ease-in',
                   }}>
-                    {audioURLError}
+                    {`[ERROR] ${audioURLError}`}
                   </p>
                 )}
               </div>
-<button
-  type="submit"
-  style={{
-    width: '100%',
-    padding: '12px',
-    borderRadius: '8px',
-    border: 'none',
-    background: audioLoading || !audioURL ? '#6b7280' : '#5227FF',
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '1.1rem',
-    fontWeight: 'bold',
-    transition: 'all 0.3s ease',
-    transform: 'scale(1)',
-  }}
-  onMouseEnter={(e) =>
-    !audioLoading &&
-    audioURL &&
-    (e.currentTarget.style.transform = 'scale(1.02)',
-     e.currentTarget.style.boxShadow = '0 4px 12px rgba(82, 39, 255, 0.4)')
-  }
-  onMouseLeave={(e) => {
-    e.currentTarget.style.transform = 'scale(1)';
-    e.currentTarget.style.boxShadow = 'none';
-  }}
->
-  {audioLoading ? 'Descargando...' : 'Descargar Audio MP3'}
-</button>
 
-
+              <button
+                type="submit"
+                disabled={audioLoading || !audioURL}
+                style={audioLoading || !audioURL ? buttonDisabledStyle : buttonPrimaryStyle}
+                onMouseEnter={(e) => {
+                  if (!audioLoading && audioURL) {
+                    e.currentTarget.style.background = `${colors.primary}20`;
+                    e.currentTarget.style.boxShadow = `0 0 30px ${colors.primaryGlow}, inset 0 0 30px rgba(0, 255, 65, 0.2)`;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!audioLoading && audioURL) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.boxShadow = `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)`;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {audioLoading ? '> Descargando...' : '> Descargar MP3'}
+              </button>
             </form>
 
+            {/* NOTA INFORMATIVA */}
             <div style={{
-              marginTop: '20px',
-              padding: '15px',
-              background: 'rgba(255, 255, 255, 0.05)',
+              marginTop: '24px',
+              padding: '18px',
+              background: `${colors.info}08`,
+              border: `1px solid ${colors.info}30`,
               borderRadius: '8px',
-              fontSize: '0.9rem',
-              color: 'rgba(255, 255, 255, 0.7)',
+              fontSize: '0.8rem',
+              color: colors.textSecondary,
+              animation: 'fadeIn 0.3s ease-in',
             }}>
-              <p style={{ margin: '0 0 5px 0' }}>
-                <strong>Nota:</strong> Las descargas cuentan para tu limite diario ({user?.dailyLimit || stats?.dailyLimit || 5} por dia).
+              <p style={{ 
+                margin: '0 0 10px 0', 
+                fontWeight: '600', 
+                color: colors.info, 
+                fontSize: '0.85rem',
+              }}>
+                {'> [INFO]'}
               </p>
+              <ul style={{ 
+                margin: 0, 
+                paddingLeft: '20px', 
+                lineHeight: '1.8',
+              }}>
+                <li>Solo videos <span style={{ color: colors.primary }}>públicos</span> sin restricciones de edad</li>
+                <li>Límite diario: <span style={{ color: colors.primary }}>{user?.dailyLimit || 5}</span> descargas</li>
+                <li>Compatibilidad: ~95% de videos</li>
+              </ul>
             </div>
           </div>
         )}
@@ -757,7 +1092,7 @@ export default function MainPage() {
           @keyframes fadeIn {
             from {
               opacity: 0;
-              transform: translateY(10px);
+              transform: translateY(8px);
             }
             to {
               opacity: 1;
@@ -772,47 +1107,63 @@ export default function MainPage() {
             }
             to {
               opacity: 0;
-              transform: translateY(-10px);
+              transform: translateY(-8px);
             }
           }
           
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-            20%, 40%, 60%, 80% { transform: translateX(5px); }
+          @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+          }
+
+          /* Scrollbar styling */
+          ::-webkit-scrollbar {
+            width: 6px;
           }
           
-          @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+          ::-webkit-scrollbar-track {
+            background: ${colors.bgPrimary};
+          }
+          
+          ::-webkit-scrollbar-thumb {
+            background: ${colors.primary}40;
+            border-radius: 3px;
+          }
+          
+          ::-webkit-scrollbar-thumb:hover {
+            background: ${colors.primary}60;
+          }
+
+          ::selection {
+            background: ${colors.primary}40;
+            color: ${colors.textPrimary};
           }
         `}</style>
       </div>
 
       {showModal && <SummaryModal summary={currentSummary} remainingRequests={remainingRequests} onClose={() => setShowModal(false)} />}
       
-      {/* Modal de confirmación */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={handleCancelConfirm}
         onConfirm={handleConfirmAction}
         title={
           confirmModal.type === 'delete' 
-            ? '¿Eliminar resumen?' 
-            : '¿Cerrar sesión?'
+            ? '> ¿Eliminar resumen?' 
+            : '> ¿Cerrar sesión?'
         }
         message={
           confirmModal.type === 'delete'
-            ? 'Esta acción no se puede deshacer. El resumen será eliminado permanentemente.'
-            : '¿Estás seguro de que quieres cerrar sesión?'
+            ? '[WARNING] Esta acción no se puede deshacer. El resumen será eliminado permanentemente.'
+            : '[CONFIRM] ¿Estás seguro de que quieres cerrar sesión?'
         }
         confirmText={
           confirmModal.type === 'delete' 
-            ? 'Eliminar' 
-            : 'Cerrar sesión'
+            ? '[ELIMINAR]' 
+            : '[SALIR]'
         }
-        cancelText="Cancelar"
-        confirmColor={confirmModal.type === 'delete' ? '#ef4444' : '#5227FF'}
+        cancelText="[CANCELAR]"
+        confirmColor={confirmModal.type === 'delete' ? colors.error : colors.primary}
         isLoading={confirmLoading}
       />
     </div>

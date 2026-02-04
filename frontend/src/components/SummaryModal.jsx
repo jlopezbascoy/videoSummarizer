@@ -145,7 +145,7 @@ export default function SummaryModal({ summary, onClose, remainingRequests }) {
             onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)')}
           >
-            📋 Copiar
+            Copiar
           </button>
           <button
             onClick={onClose}

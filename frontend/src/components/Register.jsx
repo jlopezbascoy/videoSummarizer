@@ -105,7 +105,7 @@ export default function Register({ onBack }) {
 
           <input
             placeholder="Email"
-            type="email"
+            type="text"
             value={email}
             onChange={e => setEmail(e.target.value)}
             disabled={loading}
