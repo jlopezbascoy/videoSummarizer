@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import MatrixBackground from './MatrixBackground';
 
 // Design System Colors - Hacker Theme
 const colors = {
@@ -37,28 +38,23 @@ export default function Register({ onBack }) {
   const [googleReady, setGoogleReady] = useState(false);
 
   const { register, loginWithGoogle } = useAuth();
-
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const isAnyLoading = loading || googleLoading;
   const passwordsMatch = password && repeatPassword && password === repeatPassword;
   const isFormValid = username && email && password && repeatPassword && passwordsMatch && !isAnyLoading;
 
-  // Manejar respuesta de Google
   const handleGoogleResponse = useCallback(
     async (response) => {
       setError('');
       setGoogleLoading(true);
-
       try {
         const credential = response?.credential;
         if (!credential) {
           setError('Google no devolvió credenciales. Intenta de nuevo.');
           return;
         }
-
         const authResult = await loginWithGoogle(credential);
-
         if (!authResult?.success) {
           setError(authResult?.error || 'Error al registrarse con Google');
         }
@@ -72,15 +68,12 @@ export default function Register({ onBack }) {
     [loginWithGoogle]
   );
 
-  // Cargar Google Identity Services
   useEffect(() => {
     if (window.google?.accounts?.id) {
       setGoogleReady(true);
       return;
     }
-
     const existing = document.querySelector('script[data-google-gsi="true"]');
-
     if (existing) {
       const checkInterval = setInterval(() => {
         if (window.google?.accounts?.id) {
@@ -88,15 +81,9 @@ export default function Register({ onBack }) {
           clearInterval(checkInterval);
         }
       }, 100);
-
       const timeout = setTimeout(() => clearInterval(checkInterval), 10000);
-
-      return () => {
-        clearInterval(checkInterval);
-        clearTimeout(timeout);
-      };
+      return () => { clearInterval(checkInterval); clearTimeout(timeout); };
     }
-
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
@@ -107,10 +94,8 @@ export default function Register({ onBack }) {
     document.body.appendChild(script);
   }, []);
 
-  // Inicializar Google Sign-In
   useEffect(() => {
     if (!googleReady || !googleClientId || !window.google?.accounts?.id) return;
-
     try {
       window.google.accounts.id.initialize({
         client_id: googleClientId,
@@ -124,20 +109,16 @@ export default function Register({ onBack }) {
     }
   }, [googleReady, googleClientId, handleGoogleResponse]);
 
-  // Botón custom que abre el popup de Google
   const handleGoogleClick = () => {
     if (!googleReady || isAnyLoading) return;
-
     try {
       window.google.accounts.id.prompt((notification) => {
         if (notification.isNotDisplayed()) {
           console.warn('Google prompt no disponible, razón:', notification.getNotDisplayedReason());
-
           const width = 500;
           const height = 600;
           const left = window.screenX + (window.outerWidth - width) / 2;
           const top = window.screenY + (window.outerHeight - height) / 2;
-
           const authUrl =
             `https://accounts.google.com/o/oauth2/v2/auth?` +
             `client_id=${googleClientId}` +
@@ -145,35 +126,21 @@ export default function Register({ onBack }) {
             `&response_type=token id_token` +
             `&scope=openid email profile` +
             `&nonce=${Math.random().toString(36).substring(2)}`;
-
-          const popup = window.open(
-            authUrl,
-            'google-auth',
-            `width=${width},height=${height},left=${left},top=${top}`
-          );
-
+          const popup = window.open(authUrl, 'google-auth', `width=${width},height=${height},left=${left},top=${top}`);
           const checkPopup = setInterval(() => {
             try {
-              if (popup?.closed) {
-                clearInterval(checkPopup);
-                return;
-              }
+              if (popup?.closed) { clearInterval(checkPopup); return; }
               const url = popup?.location?.href;
               if (url?.includes('id_token=')) {
                 clearInterval(checkPopup);
                 const params = new URLSearchParams(url.split('#')[1]);
                 const idToken = params.get('id_token');
                 popup.close();
-                if (idToken) {
-                  handleGoogleResponse({ credential: idToken });
-                }
+                if (idToken) handleGoogleResponse({ credential: idToken });
               }
-            } catch {
-              // Cross-origin, ignorar
-            }
+            } catch { /* cross-origin */ }
           }, 500);
         }
-
         if (notification.isSkippedMoment()) {
           console.log('Usuario cerró el prompt de Google');
         }
@@ -188,27 +155,22 @@ export default function Register({ onBack }) {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     if (!username || !email || !password || !repeatPassword) {
       setError('Todos los campos son obligatorios');
       setLoading(false);
       return;
     }
-
     if (password !== repeatPassword) {
       setError('Las contraseñas no coinciden');
       setLoading(false);
       return;
     }
-
     if (password.length < 6) {
       setError('La contraseña debe tener al menos 6 caracteres');
       setLoading(false);
       return;
     }
-
     const result = await register({ username, email, password });
-
     if (!result.success) {
       setError(result.error);
       setLoading(false);
@@ -245,366 +207,290 @@ export default function Register({ onBack }) {
   };
 
   return (
-    <div style={{
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      pointerEvents: 'none',
-      fontFamily: '"Share Tech Mono", "Fira Code", monospace',
-    }}>
-      <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+    <>
+      <MatrixBackground />
 
       <div style={{
-        pointerEvents: 'auto',
-        background: colors.bgPrimary,
-        borderRadius: '12px',
-        border: `1px solid ${colors.primary}30`,
-        padding: '40px',
-        width: 400,
-        textAlign: 'center',
-        boxShadow: `0 0 40px rgba(0, 255, 65, 0.15), 0 0 80px rgba(0, 255, 65, 0.05)`,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+        fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+        zIndex: 2,
       }}>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Terminal Header */}
-          <div style={{ marginBottom: '8px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              marginBottom: '16px',
-            }}>
-              <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.error, boxShadow: `0 0 8px ${colors.error}60` }}></span>
-              <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.warning, boxShadow: `0 0 8px ${colors.warning}60` }}></span>
-              <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.primary, boxShadow: `0 0 8px ${colors.primaryGlow}` }}></span>
-            </div>
+        <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet" />
 
-            <h2 style={{
-              fontSize: '1.5rem',
-              margin: '0',
-              fontWeight: '600',
-              color: colors.primary,
-              letterSpacing: '3px',
-              textTransform: 'uppercase',
-              textShadow: `0 0 20px ${colors.primaryGlow}`,
-            }}>
-              {'> REGISTER_'}
-            </h2>
-            <p style={{
-              margin: '8px 0 0 0',
-              color: colors.textSecondary,
-              fontSize: '0.8rem',
-              letterSpacing: '1px',
-            }}>
-              [CREAR NUEVA CUENTA]
-            </p>
-          </div>
+        <div style={{
+          pointerEvents: 'auto',
+          background: `${colors.bgPrimary}F0`,
+          backdropFilter: 'blur(10px)',
+          borderRadius: '12px',
+          border: `1px solid ${colors.primary}30`,
+          padding: '40px',
+          width: 400,
+          textAlign: 'center',
+          boxShadow: `0 0 40px rgba(0, 255, 65, 0.15), 0 0 80px rgba(0, 255, 65, 0.05)`,
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Scanline Effect */}
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 65, 0.03) 2px, rgba(0, 255, 65, 0.03) 4px)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }} />
 
-          {error && (
-            <div style={{
-              padding: '14px 16px',
-              borderRadius: '8px',
-              background: `${colors.error}10`,
-              border: `1px solid ${colors.error}50`,
-              color: colors.error,
-              fontSize: '0.85rem',
-              textAlign: 'left',
-              animation: 'fadeIn 0.3s ease-in',
-            }}>
-              {`[ERROR] ${error}`}
-            </div>
-          )}
+          {/* Content */}
+          <div style={{ position: 'relative', zIndex: 2 }}>
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Terminal Header */}
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.error, boxShadow: `0 0 8px ${colors.error}60` }}></span>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.warning, boxShadow: `0 0 8px ${colors.warning}60` }}></span>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: colors.primary, boxShadow: `0 0 8px ${colors.primaryGlow}` }}></span>
+                </div>
+                <h2 style={{ fontSize: '1.5rem', margin: '0', fontWeight: '600', color: colors.primary, letterSpacing: '3px', textTransform: 'uppercase', textShadow: `0 0 20px ${colors.primaryGlow}` }}>
+                  {'> REGISTER_'}
+                </h2>
+                <p style={{ margin: '8px 0 0 0', color: colors.textSecondary, fontSize: '0.8rem', letterSpacing: '1px' }}>
+                  [CREAR NUEVA CUENTA]
+                </p>
+              </div>
 
-          {/* Botón de Google CUSTOM estilo hacker */}
-          <button
-            type="button"
-            onClick={handleGoogleClick}
-            disabled={!googleReady || isAnyLoading}
-            style={{
-              width: '100%',
-              padding: '14px 24px',
-              borderRadius: '8px',
-              border: `1px solid ${!googleReady || isAnyLoading ? colors.textDisabled : colors.border}`,
-              background: colors.bgSecondary,
-              color: !googleReady || isAnyLoading ? colors.textDisabled : colors.textPrimary,
-              cursor: !googleReady || isAnyLoading ? 'not-allowed' : 'pointer',
-              fontSize: '0.9rem',
-              fontWeight: '600',
-              fontFamily: '"Share Tech Mono", "Fira Code", monospace',
-              transition: 'all 200ms ease',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '12px',
-              letterSpacing: '1px',
-              opacity: !googleReady || isAnyLoading ? 0.5 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (googleReady && !isAnyLoading) {
-                e.currentTarget.style.borderColor = colors.primary;
-                e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
-                e.currentTarget.style.background = `${colors.primary}10`;
-                e.currentTarget.style.color = colors.primary;
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (googleReady && !isAnyLoading) {
-                e.currentTarget.style.borderColor = colors.border;
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.background = colors.bgSecondary;
-                e.currentTarget.style.color = colors.textPrimary;
-                e.currentTarget.style.transform = 'translateY(0)';
-              }
-            }}
-          >
-            {googleLoading ? (
-              <>
-                <div style={{
-                  width: '18px',
-                  height: '18px',
-                  border: `2px solid ${colors.primary}40`,
-                  borderTop: `2px solid ${colors.primary}`,
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                }} />
-                {'> Autenticando...'}
-              </>
-            ) : (
-              <>
-                <GoogleIcon />
-                {'> Registrarse con Google'}
-              </>
-            )}
-          </button>
+              {error && (
+                <div style={{ padding: '14px 16px', borderRadius: '8px', background: `${colors.error}10`, border: `1px solid ${colors.error}50`, color: colors.error, fontSize: '0.85rem', textAlign: 'left', animation: 'fadeIn 0.3s ease-in' }}>
+                  {`[ERROR] ${error}`}
+                </div>
+              )}
 
-          {/* Separador */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0' }}>
-            <div style={{ flex: 1, height: '1px', background: colors.border }} />
-            <span style={{ color: colors.textDisabled, fontSize: '0.75rem', letterSpacing: '1px' }}>[O]</span>
-            <div style={{ flex: 1, height: '1px', background: colors.border }} />
-          </div>
+              {/* Google Button */}
+              <button
+                type="button"
+                onClick={handleGoogleClick}
+                disabled={!googleReady || isAnyLoading}
+                style={{
+                  width: '100%', padding: '14px 24px', borderRadius: '8px',
+                  border: `1px solid ${!googleReady || isAnyLoading ? colors.textDisabled : colors.border}`,
+                  background: colors.bgSecondary,
+                  color: !googleReady || isAnyLoading ? colors.textDisabled : colors.textPrimary,
+                  cursor: !googleReady || isAnyLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem', fontWeight: '600',
+                  fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                  transition: 'all 200ms ease',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                  letterSpacing: '1px',
+                  opacity: !googleReady || isAnyLoading ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (googleReady && !isAnyLoading) {
+                    e.currentTarget.style.borderColor = colors.primary;
+                    e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
+                    e.currentTarget.style.background = `${colors.primary}10`;
+                    e.currentTarget.style.color = colors.primary;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (googleReady && !isAnyLoading) {
+                    e.currentTarget.style.borderColor = colors.border;
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.background = colors.bgSecondary;
+                    e.currentTarget.style.color = colors.textPrimary;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {googleLoading ? (
+                  <>
+                    <div style={{ width: '18px', height: '18px', border: `2px solid ${colors.primary}40`, borderTop: `2px solid ${colors.primary}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    {'> Autenticando...'}
+                  </>
+                ) : (
+                  <>
+                    <GoogleIcon />
+                    {'> Registrarse con Google'}
+                  </>
+                )}
+              </button>
 
-          <div>
-            <input
-              placeholder="> usuario"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              disabled={isAnyLoading}
-              style={inputStyle}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = colors.primary;
-                e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = colors.border;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-          </div>
+              {/* Separador */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0' }}>
+                <div style={{ flex: 1, height: '1px', background: colors.border }} />
+                <span style={{ color: colors.textDisabled, fontSize: '0.75rem', letterSpacing: '1px' }}>[O]</span>
+                <div style={{ flex: 1, height: '1px', background: colors.border }} />
+              </div>
 
-          <div>
-            <input
-              placeholder="> email"
-              type="text"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              disabled={isAnyLoading}
-              style={inputStyle}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = colors.primary;
-                e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = colors.border;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-          </div>
+              <div>
+                <input
+                  placeholder="> usuario"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  disabled={isAnyLoading}
+                  style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = colors.primary; e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.boxShadow = 'none'; }}
+                />
+              </div>
 
-          <div>
-            <input
-              type="password"
-              placeholder="> contraseña (mín. 6 chars)"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              disabled={isAnyLoading}
-              style={inputStyle}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = colors.primary;
-                e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = colors.border;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-          </div>
+              <div>
+                <input
+                  placeholder="> email"
+                  type="text"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  disabled={isAnyLoading}
+                  style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = colors.primary; e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.boxShadow = 'none'; }}
+                />
+              </div>
 
-          <div>
-            <input
-              type="password"
-              placeholder="> repetir contraseña"
-              value={repeatPassword}
-              onChange={e => setRepeatPassword(e.target.value)}
-              disabled={isAnyLoading}
-              style={getPasswordMatchStyle()}
-              onFocus={(e) => {
-                if (!repeatPassword || passwordsMatch) {
-                  e.currentTarget.style.borderColor = colors.primary;
-                  e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
-                }
-              }}
-              onBlur={(e) => {
-                if (!repeatPassword) {
-                  e.currentTarget.style.borderColor = colors.border;
-                  e.currentTarget.style.boxShadow = 'none';
-                }
-              }}
-            />
-            {repeatPassword && (
-              <p style={{
-                margin: '8px 0 0 0',
-                fontSize: '0.75rem',
-                textAlign: 'left',
-                color: passwordsMatch ? colors.success : colors.error,
-                animation: 'fadeIn 0.3s ease-in',
-              }}>
-                {passwordsMatch ? '[✓] Contraseñas coinciden' : '[✗] Las contraseñas no coinciden'}
+              <div>
+                <input
+                  type="password"
+                  placeholder="> contraseña (mín. 6 chars)"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  disabled={isAnyLoading}
+                  style={inputStyle}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = colors.primary; e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.boxShadow = 'none'; }}
+                />
+              </div>
+
+              <div>
+                <input
+                  type="password"
+                  placeholder="> repetir contraseña"
+                  value={repeatPassword}
+                  onChange={e => setRepeatPassword(e.target.value)}
+                  disabled={isAnyLoading}
+                  style={getPasswordMatchStyle()}
+                  onFocus={(e) => {
+                    if (!repeatPassword || passwordsMatch) {
+                      e.currentTarget.style.borderColor = colors.primary;
+                      e.currentTarget.style.boxShadow = `0 0 15px ${colors.primaryGlow}`;
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (!repeatPassword) {
+                      e.currentTarget.style.borderColor = colors.border;
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
+                  }}
+                />
+                {repeatPassword && (
+                  <p style={{
+                    margin: '8px 0 0 0', fontSize: '0.75rem', textAlign: 'left',
+                    color: passwordsMatch ? colors.success : colors.error,
+                    animation: 'fadeIn 0.3s ease-in',
+                  }}>
+                    {passwordsMatch ? '[✓] Contraseñas coinciden' : '[✗] Las contraseñas no coinciden'}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={!isFormValid}
+                style={{
+                  width: '100%', padding: '14px 24px', borderRadius: '8px',
+                  border: `1px solid ${isFormValid ? colors.primary : colors.textDisabled}`,
+                  background: 'transparent',
+                  color: isFormValid ? colors.primary : colors.textDisabled,
+                  cursor: isFormValid ? 'pointer' : 'not-allowed',
+                  fontSize: '1rem', fontWeight: '600',
+                  fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                  transition: 'all 200ms ease',
+                  boxShadow: isFormValid ? `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)` : 'none',
+                  textTransform: 'uppercase', letterSpacing: '2px', marginTop: '8px',
+                }}
+                onMouseEnter={(e) => {
+                  if (isFormValid) {
+                    e.currentTarget.style.background = `${colors.primary}20`;
+                    e.currentTarget.style.boxShadow = `0 0 30px ${colors.primaryGlow}, inset 0 0 30px rgba(0, 255, 65, 0.2)`;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (isFormValid) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.boxShadow = `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)`;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                {loading ? '> Procesando...' : '> Crear Cuenta'}
+              </button>
+            </form>
+
+            <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: `1px solid ${colors.border}` }}>
+              <p style={{ color: colors.textSecondary, margin: 0, fontSize: '0.85rem' }}>
+                {'¿Ya tienes acceso? '}
+                <button
+                  onClick={onBack}
+                  disabled={isAnyLoading}
+                  style={{
+                    border: 'none', background: 'transparent', color: colors.primary,
+                    cursor: isAnyLoading ? 'not-allowed' : 'pointer',
+                    textDecoration: 'none', padding: 0, fontWeight: '600', fontSize: 'inherit',
+                    fontFamily: '"Share Tech Mono", "Fira Code", monospace',
+                    transition: 'all 200ms ease',
+                    textShadow: `0 0 10px ${colors.primaryGlow}`,
+                  }}
+                  onMouseEnter={(e) => { if (!isAnyLoading) e.currentTarget.style.textShadow = `0 0 20px ${colors.primaryGlow}`; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.textShadow = `0 0 10px ${colors.primaryGlow}`; }}
+                >
+                  [INICIAR SESIÓN]
+                </button>
               </p>
-            )}
+            </div>
+
+            {/* Decorative Terminal Line */}
+            <div style={{ marginTop: '20px', padding: '12px', background: colors.bgSecondary, borderRadius: '6px', border: `1px solid ${colors.border}` }}>
+              <p style={{ margin: 0, color: colors.textDisabled, fontSize: '0.75rem', textAlign: 'left', letterSpacing: '1px' }}>
+                <span style={{ color: colors.primary }}>new_user@system</span>
+                <span style={{ color: colors.textSecondary }}>:</span>
+                <span style={{ color: '#00D4FF' }}>~/register</span>
+                <span style={{ color: colors.textSecondary }}>$ </span>
+                <span style={{ color: colors.textPrimary, animation: 'blink 1s infinite' }}>_</span>
+              </p>
+            </div>
           </div>
-
-          <button
-            type="submit"
-            disabled={!isFormValid}
-            style={{
-              width: '100%',
-              padding: '14px 24px',
-              borderRadius: '8px',
-              border: `1px solid ${isFormValid ? colors.primary : colors.textDisabled}`,
-              background: 'transparent',
-              color: isFormValid ? colors.primary : colors.textDisabled,
-              cursor: isFormValid ? 'pointer' : 'not-allowed',
-              fontSize: '1rem',
-              fontWeight: '600',
-              fontFamily: '"Share Tech Mono", "Fira Code", monospace',
-              transition: 'all 200ms ease',
-              boxShadow: isFormValid ? `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)` : 'none',
-              textTransform: 'uppercase',
-              letterSpacing: '2px',
-              marginTop: '8px',
-            }}
-            onMouseEnter={(e) => {
-              if (isFormValid) {
-                e.currentTarget.style.background = `${colors.primary}20`;
-                e.currentTarget.style.boxShadow = `0 0 30px ${colors.primaryGlow}, inset 0 0 30px rgba(0, 255, 65, 0.2)`;
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (isFormValid) {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.boxShadow = `0 0 20px ${colors.primaryGlow}, inset 0 0 20px rgba(0, 255, 65, 0.1)`;
-                e.currentTarget.style.transform = 'translateY(0)';
-              }
-            }}
-          >
-            {loading ? '> Procesando...' : '> Crear Cuenta'}
-          </button>
-        </form>
-
-        <div style={{
-          marginTop: '24px',
-          paddingTop: '20px',
-          borderTop: `1px solid ${colors.border}`,
-        }}>
-          <p style={{
-            color: colors.textSecondary,
-            margin: 0,
-            fontSize: '0.85rem',
-          }}>
-            {'¿Ya tienes acceso? '}
-            <button
-              onClick={onBack}
-              disabled={isAnyLoading}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: colors.primary,
-                cursor: isAnyLoading ? 'not-allowed' : 'pointer',
-                textDecoration: 'none',
-                padding: 0,
-                fontWeight: '600',
-                fontSize: 'inherit',
-                fontFamily: '"Share Tech Mono", "Fira Code", monospace',
-                transition: 'all 200ms ease',
-                textShadow: `0 0 10px ${colors.primaryGlow}`,
-              }}
-              onMouseEnter={(e) => {
-                if (!isAnyLoading) e.currentTarget.style.textShadow = `0 0 20px ${colors.primaryGlow}`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.textShadow = `0 0 10px ${colors.primaryGlow}`;
-              }}
-            >
-              [INICIAR SESIÓN]
-            </button>
-          </p>
         </div>
 
-        {/* Decorative Terminal Line */}
-        <div style={{
-          marginTop: '20px',
-          padding: '12px',
-          background: colors.bgSecondary,
-          borderRadius: '6px',
-          border: `1px solid ${colors.border}`,
-        }}>
-          <p style={{
-            margin: 0,
-            color: colors.textDisabled,
-            fontSize: '0.75rem',
-            textAlign: 'left',
-            letterSpacing: '1px',
-          }}>
-            <span style={{ color: colors.primary }}>new_user@system</span>
-            <span style={{ color: colors.textSecondary }}>:</span>
-            <span style={{ color: '#00D4FF' }}>~/register</span>
-            <span style={{ color: colors.textSecondary }}>$ </span>
-            <span style={{
-              color: colors.textPrimary,
-              animation: 'blink 1s infinite',
-            }}>_</span>
-          </p>
-        </div>
+        <style>{`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          ::selection {
+            background: ${colors.primary}40;
+            color: ${colors.textPrimary};
+          }
+          ::placeholder {
+            color: ${colors.textDisabled};
+          }
+        `}</style>
       </div>
-
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes blink {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        ::selection {
-          background: ${colors.primary}40;
-          color: ${colors.textPrimary};
-        }
-        ::placeholder {
-          color: ${colors.textDisabled};
-        }
-      `}</style>
-    </div>
+    </>
   );
 }
