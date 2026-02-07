@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { login as apiLogin, register as apiRegister, getCurrentUser, saveAuthData, clearAuthData, getStoredToken, getStoredUser } from '../services/api';
+import {
+  login as apiLogin,
+  register as apiRegister,
+  googleAuth as apiGoogleAuth,
+  getCurrentUser,
+  saveAuthData,
+  clearAuthData,
+  getStoredToken,
+  getStoredUser,
+} from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -45,26 +54,51 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   /**
-   * Inicia sesión
+   * Inicia sesión con usuario y contraseña
    */
   const login = async (credentials) => {
     try {
       const response = await apiLogin(credentials);
-      
+
       const { token: newToken, ...userData } = response;
-      
+
       setToken(newToken);
       setUser(userData);
       setIsAuthenticated(true);
-      
+
       saveAuthData(newToken, userData);
-      
+
       return { success: true, data: response };
     } catch (error) {
       console.error('Error en login:', error);
       return {
         success: false,
-        error: error.response?.data?.error || 'Error al iniciar sesión'
+        error: error.response?.data?.error || 'Error al iniciar sesión',
+      };
+    }
+  };
+
+  /**
+   * Inicia sesión con Google (ID Token)
+   */
+  const loginWithGoogle = async (googleIdToken) => {
+    try {
+      const response = await apiGoogleAuth(googleIdToken);
+
+      const { token: newToken, ...userData } = response;
+
+      setToken(newToken);
+      setUser(userData);
+      setIsAuthenticated(true);
+
+      saveAuthData(newToken, userData);
+
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('Error en loginWithGoogle:', error);
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Error al iniciar sesión con Google',
       };
     }
   };
@@ -75,21 +109,21 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const response = await apiRegister(userData);
-      
+
       const { token: newToken, ...userInfo } = response;
-      
+
       setToken(newToken);
       setUser(userInfo);
       setIsAuthenticated(true);
-      
+
       saveAuthData(newToken, userInfo);
-      
+
       return { success: true, data: response };
     } catch (error) {
       console.error('Error en registro:', error);
       return {
         success: false,
-        error: error.response?.data?.error || 'Error al registrar usuario'
+        error: error.response?.data?.error || 'Error al registrar usuario',
       };
     }
   };
@@ -108,7 +142,7 @@ export const AuthProvider = ({ children }) => {
    * Actualiza los datos del usuario
    */
   const updateUser = (newUserData) => {
-    setUser(prev => ({ ...prev, ...newUserData }));
+    setUser((prev) => ({ ...prev, ...newUserData }));
     const storedUser = getStoredUser();
     if (storedUser) {
       saveAuthData(token, { ...storedUser, ...newUserData });
@@ -121,6 +155,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     isAuthenticated,
     login,
+    loginWithGoogle,
     register,
     logout,
     updateUser,

@@ -270,4 +270,11 @@ export const getStoredUser = () => {
   return user ? JSON.parse(user) : null;
 };
 
+export const googleAuth = async (googleIdToken) => {
+  const response = await api.post('/auth/google', {
+    token: googleIdToken
+  });
+  return response.data;
+};
+
 export default api;

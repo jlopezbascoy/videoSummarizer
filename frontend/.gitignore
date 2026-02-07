@@ -1,1 +1,10 @@
 node_modules
+
+# Vite / secrets 
+.env
+.env.local
+.env.* 
+.env.*.local
+
+# Si quieres mantener un ejemplo en el repo:
+!.env.example
