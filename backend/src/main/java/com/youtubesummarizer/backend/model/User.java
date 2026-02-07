@@ -4,10 +4,7 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -19,11 +16,14 @@ import java.util.List;
  * Entidad User - Representa un usuario del sistema
  */
 @Entity
-@Table(name = "users", indexes = {
-    @Index(name = "idx_username", columnList = "username"),
-    @Index(name = "idx_email", columnList = "email"),
-    @Index(name = "idx_user_type", columnList = "user_type")
-})
+@Table(
+        name = "users",
+        indexes = {
+                @Index(name = "idx_username", columnList = "username"),
+                @Index(name = "idx_email", columnList = "email"),
+                @Index(name = "idx_user_type", columnList = "user_type")
+        }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -45,8 +45,8 @@ public class User {
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
-    @NotBlank(message = "La contraseña es obligatoria")
-    @Column(name = "password_hash", nullable = false, length = 255)
+    // Se elimina @NotBlank porque los usuarios de Google OAuth no tienen contraseña
+    @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
@@ -75,6 +75,7 @@ public class User {
     /**
      * Enum para tipos de usuario
      */
+    @Getter
     public enum UserType {
         FREE(3, 600),      // 3 resúmenes/día, videos max 10 min (600 seg)
         PREMIUM(20, 1800), // 20 resúmenes/día, videos max 30 min (1800 seg)
@@ -88,13 +89,6 @@ public class User {
             this.maxVideoDurationSeconds = maxVideoDurationSeconds;
         }
 
-        public int getDailyLimit() {
-            return dailyLimit;
-        }
-
-        public int getMaxVideoDurationSeconds() {
-            return maxVideoDurationSeconds;
-        }
     }
 
     /**
@@ -109,5 +103,52 @@ public class User {
      */
     public int getMaxVideoDuration() {
         return userType.getMaxVideoDurationSeconds();
+    }
+
+    @Column(unique = true)
+    private String googleId;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private String provider = "local";
+
+    @Column
+    private String pictureUrl;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    /**
+     * Verifica si el usuario se registró con Google
+     */
+    public boolean isGoogleUser() {
+        return "google".equals(provider);
+    }
+
+    /**
+     * Verifica si el usuario tiene contraseña local
+     */
+    public boolean hasLocalPassword() {
+        return passwordHash != null && !passwordHash.isBlank();
+    }
+
+    /**
+     * Constructor de conveniencia para usuarios autenticados vía Google OAuth
+     */
+    public static User fromGoogleOAuth(String googleId,
+                                       String email,
+                                       String name,
+                                       String pictureUrl) {
+        User user = new User();
+        user.setGoogleId(googleId);
+        user.setEmail(email);
+        user.setUsername(name);
+        user.setProvider("google");
+        user.setPictureUrl(pictureUrl);
+        user.setEmailVerified(true);
+        user.setUserType(UserType.FREE);
+        user.setPasswordHash(null); // Los usuarios de Google no necesitan contraseña
+        return user;
     }
 }

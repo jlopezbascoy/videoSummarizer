@@ -11,10 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 
-/**
- * Implementación personalizada de UserDetailsService
- * Carga usuarios desde la base de datos para autenticación
- */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
@@ -29,16 +25,17 @@ public class CustomUserDetailsService implements UserDetailsService {
                         new UsernameNotFoundException("Usuario no encontrado: " + username)
                 );
 
+        String password = user.getPasswordHash() != null
+                ? user.getPasswordHash()
+                : "{noop}google-oauth-user";
+
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
-                user.getPasswordHash(),
-                new ArrayList<>() // Authorities vacías por ahora (puedes añadir roles después)
+                password,
+                new ArrayList<>()
         );
     }
 
-    /**
-     * Carga un usuario por su ID (útil para JWT)
-     */
     @Transactional
     public UserDetails loadUserById(Long id) {
         User user = userRepository.findById(id)
@@ -46,9 +43,13 @@ public class CustomUserDetailsService implements UserDetailsService {
                         new UsernameNotFoundException("Usuario no encontrado con id: " + id)
                 );
 
+        String password = user.getPasswordHash() != null
+                ? user.getPasswordHash()
+                : "{noop}google-oauth-user";
+
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
-                user.getPasswordHash(),
+                password,
                 new ArrayList<>()
         );
     }

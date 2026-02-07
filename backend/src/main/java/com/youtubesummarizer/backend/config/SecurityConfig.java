@@ -2,7 +2,6 @@ package com.youtubesummarizer.backend.config;
 
 import com.youtubesummarizer.backend.security.IpRateLimitFilter;
 import com.youtubesummarizer.backend.security.JwtAuthenticationFilter;
-import jakarta.servlet.Filter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,12 +22,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
-import java.util.List;
 
-/**
- * Configuración de Spring Security
- * Define la seguridad de la aplicación, endpoints públicos/privados, CORS, JWT
- */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -43,25 +37,16 @@ public class SecurityConfig {
     @Autowired
     private IpRateLimitFilter ipRateLimitFilter;
 
-    /**
-     * Configura el encoder de contraseñas (BCrypt)
-     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * Configura el AuthenticationManager
-     */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authConfig) throws Exception {
         return authConfig.getAuthenticationManager();
     }
 
-    /**
-     * Configura el proveedor de autenticación
-     */
     @Bean
     public DaoAuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
@@ -70,20 +55,14 @@ public class SecurityConfig {
         return authProvider;
     }
 
-    /**
-     * Configura CORS (Cross-Origin Resource Sharing)
-     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-
-        // Permitir orígenes (ajusta según tu frontend)
         configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",    // Vite dev
-                "http://localhost:3000",    // React dev alternativo
-                "http://localhost:4200"     // Angular dev
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "http://localhost:4200"
         ));
-
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
@@ -91,13 +70,9 @@ public class SecurityConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-
         return source;
     }
 
-    /**
-     * Configura la cadena de filtros de seguridad
-     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -107,19 +82,14 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoints públicos (sin autenticación)
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/test/**").permitAll()
-                        .requestMatchers("/api/audio/**").authenticated()
                         .requestMatchers("/error").permitAll()
-
-                        // Todos los demás endpoints requieren autenticación
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                    .addFilterBefore(ipRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
-
+                .addFilterBefore(ipRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

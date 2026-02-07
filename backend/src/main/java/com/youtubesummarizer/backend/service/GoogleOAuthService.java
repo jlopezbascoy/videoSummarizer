@@ -15,8 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 public class GoogleOAuthService {
@@ -27,18 +27,17 @@ public class GoogleOAuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final GoogleIdTokenVerifier verifier;
 
-    @Value("${spring.security.oauth2.client.registration.google.client-id}")
-    private String googleClientId;
-
     public GoogleOAuthService(
             UserRepository userRepository,
             JwtTokenProvider jwtTokenProvider,
-            @Value("${spring.security.oauth2.client.registration.google.client-id}") String clientId) {
+            @Value("${google.client.id}") String clientId) {
 
         this.userRepository = userRepository;
         this.jwtTokenProvider = jwtTokenProvider;
 
-        // Configurar verificador de tokens de Google
+        logger.info("Inicializando GoogleOAuthService con client ID: {}...{}",
+                clientId.substring(0, 8), clientId.substring(clientId.length() - 8));
+
         this.verifier = new GoogleIdTokenVerifier.Builder(
                 new NetHttpTransport(),
                 GsonFactory.getDefaultInstance())
@@ -52,11 +51,14 @@ public class GoogleOAuthService {
     @Transactional
     public GoogleAuthResponse authenticateWithGoogle(String idTokenString) {
         try {
+            logger.debug("Verificando token de Google (longitud: {})", idTokenString != null ? idTokenString.length() : "null");
+
             // Verificar token con Google
             GoogleIdToken idToken = verifier.verify(idTokenString);
 
             if (idToken == null) {
-                throw new RuntimeException("Token de Google inválido");
+                logger.error("Google rechazó el token - puede ser client ID incorrecto o token expirado");
+                throw new RuntimeException("Token de Google inválido o expirado");
             }
 
             // Extraer información del token
@@ -67,13 +69,16 @@ public class GoogleOAuthService {
             String pictureUrl = (String) payload.get("picture");
             boolean emailVerified = payload.getEmailVerified();
 
-            logger.info("Usuario autenticado con Google: {} ({})", name, email);
+            logger.info("Token verificado correctamente para: {} ({})", name, email);
 
             // Buscar o crear usuario
             User user = findOrCreateUser(googleId, email, name, pictureUrl, emailVerified);
 
             // Generar JWT token
-            String jwtToken = jwtTokenProvider.generateToken(user.getUsername());
+            String jwtToken = jwtTokenProvider.generateTokenFromUsername(user.getUsername());
+
+            boolean isNewUser = user.getCreatedAt() != null
+                    && user.getCreatedAt().plusSeconds(10).isAfter(java.time.LocalDateTime.now());
 
             return new GoogleAuthResponse(
                     jwtToken,
@@ -81,11 +86,15 @@ public class GoogleOAuthService {
                     user.getEmail(),
                     user.getUserType().toString(),
                     user.getPictureUrl(),
-                    user.getCreatedAt().plusSeconds(10).isAfter(java.time.LocalDateTime.now()) // Si fue creado hace menos de 10 seg
+                    isNewUser,
+                    user.getDailyLimit(),
+                    user.getMaxVideoDuration()
             );
 
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            logger.error("Error al autenticar con Google: {}", e.getMessage());
+            logger.error("Error al autenticar con Google: {}", e.getMessage(), e);
             throw new RuntimeException("Error al autenticar con Google: " + e.getMessage());
         }
     }
@@ -98,19 +107,15 @@ public class GoogleOAuthService {
         Optional<User> existingUser = userRepository.findByGoogleId(googleId);
 
         if (existingUser.isPresent()) {
-            // Usuario existe, actualizar info si cambió
             User user = existingUser.get();
-            boolean updated = false;
 
-            if (!user.getPictureUrl().equals(pictureUrl)) {
+            // Actualizar pictureUrl si cambió (null-safe)
+            if (!Objects.equals(user.getPictureUrl(), pictureUrl)) {
                 user.setPictureUrl(pictureUrl);
-                updated = true;
-            }
-
-            if (updated) {
                 userRepository.save(user);
             }
 
+            logger.info("Usuario existente autenticado: {}", user.getUsername());
             return user;
         }
 
@@ -118,7 +123,6 @@ public class GoogleOAuthService {
         Optional<User> userByEmail = userRepository.findByEmail(email);
 
         if (userByEmail.isPresent()) {
-            // Vincular cuenta existente con Google
             User user = userByEmail.get();
             user.setGoogleId(googleId);
             user.setProvider("google");
@@ -130,11 +134,9 @@ public class GoogleOAuthService {
         }
 
         // Crear nuevo usuario
-        User newUser = User.fromGoogleOAuth(googleId, email, name, pictureUrl);
-
-        // Generar username único si el nombre ya existe
         String username = generateUniqueUsername(name);
-        newUser.setUsername(username);
+
+        User newUser = User.fromGoogleOAuth(googleId, email, username, pictureUrl);
 
         logger.info("Nuevo usuario creado desde Google: {} ({})", username, email);
         return userRepository.save(newUser);
@@ -144,13 +146,26 @@ public class GoogleOAuthService {
      * Generar username único
      */
     private String generateUniqueUsername(String baseName) {
+        if (baseName == null || baseName.isBlank()) {
+            baseName = "user_" + System.currentTimeMillis();
+        }
+
         String username = baseName.replaceAll("\\s+", "").toLowerCase();
 
-        if (!userRepository.findByUsername(username).isPresent()) {
+        // Asegurar mínimo 3 caracteres (validación del modelo)
+        if (username.length() < 3) {
+            username = username + "user";
+        }
+
+        // Truncar a 45 chars para dejar espacio al sufijo numérico
+        if (username.length() > 45) {
+            username = username.substring(0, 45);
+        }
+
+        if (userRepository.findByUsername(username).isEmpty()) {
             return username;
         }
 
-        // Agregar sufijo numérico si ya existe
         int suffix = 1;
         while (userRepository.findByUsername(username + suffix).isPresent()) {
             suffix++;

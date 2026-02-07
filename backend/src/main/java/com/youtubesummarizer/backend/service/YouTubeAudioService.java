@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpMethod;
 
@@ -19,7 +20,7 @@ import java.nio.file.Paths;
 
 /**
  * Servicio para interactuar con la API de Python que descarga audio de YouTube
- * Usa el proyecto: https://github.com/alperensumeroglu/yt-audio-api
+ * Con manejo mejorado de errores y mensajes claros para el usuario
  */
 @Service
 public class YouTubeAudioService {
@@ -37,36 +38,22 @@ public class YouTubeAudioService {
         this.objectMapper = new ObjectMapper();
     }
 
-    /**
-     * Descarga el audio de un video de YouTube como MP3
-     *
-     * @param videoUrl URL del video de YouTube
-     * @return Path al archivo MP3 descargado
-     * @throws AudioDownloadException Si hay algún error en el proceso
-     */
     public Path downloadAudio(String videoUrl) {
         try {
             logger.info("Iniciando descarga de audio para: {}", videoUrl);
-
-            // Paso 1: Obtener token del video
             String token = requestToken(videoUrl);
             logger.info("Token obtenido: {}", token);
-
-            // Paso 2: Descargar el archivo MP3 usando el token
             Path audioFile = downloadAudioFile(token);
             logger.info("Audio descargado exitosamente: {}", audioFile.getFileName());
-
             return audioFile;
-
+        } catch (AudioDownloadException e) {
+            throw e;
         } catch (Exception e) {
-            logger.error("Error al descargar audio: {}", e.getMessage(), e);
-            throw new AudioDownloadException("No se pudo descargar el audio del video: " + e.getMessage());
+            logger.error("Error inesperado: {}", e.getMessage(), e);
+            throw new AudioDownloadException("Error inesperado al procesar el video");
         }
     }
 
-    /**
-     * Solicita un token para el video a la Python API
-     */
     private String requestToken(String videoUrl) {
         try {
             String url = audioApiBaseUrl + "/?url=" + videoUrl;
@@ -75,92 +62,115 @@ public class YouTubeAudioService {
             ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
 
             if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new AudioDownloadException(
-                        "Error al solicitar token. Codigo: " + response.getStatusCode()
-                );
+                throw new AudioDownloadException("Error al procesar el video");
             }
 
             String responseBody = response.getBody();
             if (responseBody == null || responseBody.isEmpty()) {
-                throw new AudioDownloadException("Respuesta vacia de la API de audio");
+                throw new AudioDownloadException("Respuesta vacia de la API");
             }
 
-            // Parsear JSON para extraer el token
             JsonNode jsonNode = objectMapper.readTree(responseBody);
             String token = jsonNode.path("token").asText();
 
             if (token == null || token.isEmpty()) {
-                throw new AudioDownloadException("Token no encontrado en la respuesta");
+                throw new AudioDownloadException("Token no encontrado");
             }
 
             return token;
 
+        } catch (HttpServerErrorException e) {
+            logger.error("Error 500: {}", e.getResponseBodyAsString());
+            String errorMessage = parseErrorMessage(e.getResponseBodyAsString());
+            throw new AudioDownloadException(errorMessage);
+        } catch (HttpClientErrorException e) {
+            logger.error("Error cliente: {}", e.getMessage());
+            throw new AudioDownloadException("URL invalida o video no disponible");
+        } catch (AudioDownloadException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("Error al solicitar token: {}", e.getMessage());
-            throw new AudioDownloadException("Error al comunicarse con la API de audio: " + e.getMessage());
+            throw new AudioDownloadException("Error al comunicarse con el servicio");
         }
     }
 
-    /**
-     * Descarga el archivo MP3 usando el token
-     */
+    private String parseErrorMessage(String errorBody) {
+        try {
+            JsonNode errorNode = objectMapper.readTree(errorBody);
+            String detail = errorNode.path("detail").asText("");
+            String error = errorNode.path("error").asText("");
+
+            if (detail.contains("Sign in to confirm your age") ||
+                    detail.contains("inappropriate for some users")) {
+                return "Este video requiere verificacion de edad y no se puede descargar. Por favor, elige un video publico sin restricciones.";
+            }
+
+            if (detail.contains("Private video") || detail.contains("private")) {
+                return "Este video es privado y no se puede descargar.";
+            }
+
+            if (detail.contains("Video unavailable") || detail.contains("not available")) {
+                return "Este video no esta disponible o ha sido eliminado.";
+            }
+
+            if (detail.contains("not available in your country") || detail.contains("region")) {
+                return "Este video no esta disponible en tu region.";
+            }
+
+            if (detail.contains("timeout") || detail.contains("too long")) {
+                return "El video es demasiado largo. Intenta con un video mas corto.";
+            }
+
+            return "El video no se puede descargar. Intenta con otro video publico.";
+
+        } catch (Exception e) {
+            logger.warn("No se pudo parsear error: {}", errorBody);
+            return "Error al procesar el video. Intenta con otro.";
+        }
+    }
+
     private Path downloadAudioFile(String token) {
         try {
             String url = audioApiBaseUrl + "/download?token=" + token;
             logger.debug("Descargando audio desde: {}", url);
 
-            // Crear directorio temporal si no existe
             Path tempDir = Paths.get(System.getProperty("java.io.tmpdir"), "youtube-audio");
             if (!Files.exists(tempDir)) {
                 Files.createDirectories(tempDir);
-                logger.debug("Directorio temporal creado: {}", tempDir);
             }
 
-            // Crear archivo temporal con nombre basado en timestamp
             String fileName = "audio_" + System.currentTimeMillis() + ".mp3";
             Path audioFile = tempDir.resolve(fileName);
 
-            // Descargar el archivo
-            ResponseEntity<byte[]> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    null,
-                    byte[].class
-            );
+            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, null, byte[].class);
 
             if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new AudioDownloadException(
-                        "Error al descargar audio. Codigo: " + response.getStatusCode()
-                );
+                throw new AudioDownloadException("Error al descargar el archivo");
             }
 
             byte[] audioData = response.getBody();
             if (audioData == null || audioData.length == 0) {
-                throw new AudioDownloadException("Archivo de audio vacio");
+                throw new AudioDownloadException("El archivo esta vacio");
             }
 
-            // Guardar el archivo
             try (FileOutputStream fos = new FileOutputStream(audioFile.toFile())) {
                 fos.write(audioData);
             }
 
             logger.info("Audio guardado: {} ({} bytes)", audioFile, audioData.length);
-
             return audioFile;
 
         } catch (IOException e) {
-            logger.error("Error al guardar archivo de audio: {}", e.getMessage());
-            throw new AudioDownloadException("Error al guardar el audio: " + e.getMessage());
+            logger.error("Error al guardar archivo: {}", e.getMessage());
+            throw new AudioDownloadException("Error al guardar el audio");
+        } catch (AudioDownloadException e) {
+            throw e;
         } catch (Exception e) {
-            logger.error("Error al descargar archivo: {}", e.getMessage());
-            throw new AudioDownloadException("Error en la descarga: " + e.getMessage());
+            logger.error("Error al descargar: {}", e.getMessage());
+            throw new AudioDownloadException("Error en la descarga");
         }
     }
 
-    /**
-     * Elimina un archivo de audio temporal
-     * Debe llamarse después de procesar el audio
-     */
     public void cleanupAudioFile(Path audioFile) {
         try {
             if (audioFile != null && Files.exists(audioFile)) {
@@ -168,21 +178,16 @@ public class YouTubeAudioService {
                 logger.info("Archivo temporal eliminado: {}", audioFile.getFileName());
             }
         } catch (IOException e) {
-            logger.warn("No se pudo eliminar archivo temporal: {}", e.getMessage());
+            logger.warn("No se pudo eliminar archivo: {}", e.getMessage());
         }
     }
 
-    /**
-     * Verifica si la Python API está disponible
-     */
     public boolean isApiAvailable() {
         try {
             String healthUrl = audioApiBaseUrl + "/";
             ResponseEntity<String> response = restTemplate.getForEntity(healthUrl, String.class);
             return response.getStatusCode().is2xxSuccessful();
         } catch (HttpClientErrorException e) {
-            // 400 Bad Request es esperado cuando no se pasa el parametro url
-            // Esto significa que la API esta corriendo
             return e.getStatusCode().value() == 400;
         } catch (Exception e) {
             logger.error("Python API no disponible: {}", e.getMessage());
@@ -190,16 +195,9 @@ public class YouTubeAudioService {
         }
     }
 
-    /**
-     * Excepción personalizada para errores de descarga de audio
-     */
     public static class AudioDownloadException extends RuntimeException {
         public AudioDownloadException(String message) {
             super(message);
-        }
-
-        public AudioDownloadException(String message, Throwable cause) {
-            super(message, cause);
         }
     }
 }
